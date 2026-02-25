@@ -1,0 +1,25 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: reasonborn-server
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: reasonborn
+  template:
+    metadata:
+      labels:
+        app: reasonborn
+    spec:
+      containers:
+      - name: reasonborn
+        image: reasonborn-amd-image:latest
+        resources:
+          limits:
+            amd.com/gpu: 1
+          requests:
+            amd.com/gpu: 1
+        env:
+        - name: HIP_VISIBLE_DEVICES
+          value: "0"

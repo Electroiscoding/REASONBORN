@@ -1,0 +1,6 @@
+# Remove any strict nvidia/cuda packages
+torch==2.1.0  # (Pip will resolve to the ROCm wheel via the Dockerfile's extra-index-url)
+deepspeed==0.11.0 # DeepSpeed supports ROCm out of the box
+# Note: Standard flash-attention requires a ROCm-specific compilation fork on AMD.
+# If you use Flash Attention, you must compile it from the ROCm fork:
+git+https://github.com/ROCm/flash-attention.git
