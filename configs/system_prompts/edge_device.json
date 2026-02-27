@@ -1,0 +1,51 @@
+{
+    "metadata": {
+        "version": "1.0",
+        "operator_id": "edge_device_001",
+        "timestamp": "2025-10-12T10:00:00Z",
+        "description": "Optimized for edge deployment"
+    },
+    "mode": "edge",
+    "outputs": {
+        "allowed_types": [
+            "no_CoT"
+        ],
+        "format": "json",
+        "max_tokens": 512,
+        "verbosity": "minimal"
+    },
+    "safety": {
+        "sensitivity": "medium",
+        "require_human_approval": [],
+        "prohibited_topics": [
+            "violence",
+            "illegal_activities"
+        ],
+        "max_uncertainty": 0.3,
+        "refuse_speculation": true
+    },
+    "explainability": {
+        "emit_proofs": false,
+        "emit_trace": "none",
+        "emit_confidence": false,
+        "emit_provenance": false,
+        "citation_style": "none"
+    },
+    "resources": {
+        "max_tokens": 512,
+        "max_wall_time_ms": 100,
+        "max_reasoning_depth": 1,
+        "max_retrieval_queries": 2,
+        "max_verification_attempts": 1
+    },
+    "privacy": {
+        "mode": "none",
+        "data_retention": "none",
+        "anonymization": true
+    },
+    "provenance": {
+        "policy": "none",
+        "trace_depth": "immediate",
+        "source_verification": false
+    }
+}

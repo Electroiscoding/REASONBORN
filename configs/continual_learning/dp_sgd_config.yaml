@@ -1,0 +1,14 @@
+enabled: true
+mode: "dp_standard"
+
+dp_sgd:
+  clipping_norm: 1.0
+  noise_multiplier: 1.1
+  batch_size: 32
+  target_epsilon: 1.2
+  target_delta: 1.0e-5
+  accountant: "renyi"
+
+privacy_engine:
+  secure_mode: true
+  ghost_clipping: false

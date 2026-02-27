@@ -1,0 +1,19 @@
+ewc:
+  enabled: true
+  lambda_ewc: 1000.0
+  fisher_samples: 1000
+  fisher_update_rate: 0.9
+
+replay:
+  enabled: true
+  buffer_size: 500
+  replay_ratio: 0.5
+  generative_replay: true
+
+episodic_memory:
+  importance_weight: 0.6
+  novelty_weight: 0.4
+  insertion_threshold: 0.5
+
+retention_threshold: 0.95
+max_updates_per_session: 100

@@ -13,13 +13,14 @@ num_experts: 8
 top_k: 2
 load_balance_loss_weight: 0.01
 
-# Training Hyperparameters
-batch_size: 256
+# Training Hyperparameters (optimized for MI300X 192GB HBM3)
+batch_size: 1024
 learning_rate: 3.0e-4
 warmup_steps: 4000
 max_steps: 500000
 bf16: true
 gradient_accumulation_steps: 4
+# PyTorch on ROCm uses "cuda" device string — HIP backend is selected transparently
 device: "cuda"
 C_clip: 1.0
 σ_noise: 1.1

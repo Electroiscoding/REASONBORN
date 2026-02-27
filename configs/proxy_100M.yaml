@@ -1,0 +1,26 @@
+# ┌─────────────────────────────────────────────────────────────────┐
+# │  ReasonBorn 100M Proxy Configuration                           │
+# │  Exact architectural replica of the 32B model at micro scale   │
+# │  Used for dataset mixture ranking via rBridge evaluation       │
+# └─────────────────────────────────────────────────────────────────┘
+
+model:
+  vocab_size: 50000
+  d_model: 512
+  num_layers: 6
+  num_heads: 8
+  intermediate_size: 1365    # 512 * 4 * (2/3) for SwiGLU
+  moe_expert_layers: [2, 4]  # Sparse MoE on specific layers
+  num_experts: 4
+  top_k: 2
+  max_seq_len: 2048
+  w_local: 128
+  dropout: 0.1
+  dtype: "bfloat16"
+  load_balance_loss_weight: 0.01
+
+learning:
+  lambda_ewc: 0.0            # Disabled for raw pre-training
+  batch_size: 16
+  learning_rate: 3.0e-4
+  max_steps: 5000            # Micro-run for proxy ranking

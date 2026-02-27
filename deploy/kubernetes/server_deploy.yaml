@@ -2,6 +2,9 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: reasonborn-server
+  labels:
+    app: reasonborn
+    hardware: amd-mi300x
 spec:
   replicas: 1
   selector:
@@ -11,15 +14,57 @@ spec:
     metadata:
       labels:
         app: reasonborn
+        hardware: amd-mi300x
     spec:
+      # Target AMD Instinct GPU nodes
+      nodeSelector:
+        accelerator: amd-mi300x
+      tolerations:
+      - key: "amd.com/gpu"
+        operator: "Exists"
+        effect: "NoSchedule"
       containers:
       - name: reasonborn
-        image: reasonborn-amd-image:latest
+        image: reasonborn-amd-rocm:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8000
+          name: http
+          protocol: TCP
         resources:
           limits:
             amd.com/gpu: 1
+            memory: "200Gi"
+            cpu: "20"
           requests:
             amd.com/gpu: 1
+            memory: "192Gi"
+            cpu: "16"
         env:
         - name: HIP_VISIBLE_DEVICES
           value: "0"
+        - name: HSA_OVERRIDE_GFX_VERSION
+          value: "9.4.2"
+        - name: PYTORCH_HIP_ALLOC_CONF
+          value: "expandable_segments:True"
+        - name: PYTORCH_ROCM_ARCH
+          value: "gfx942"
+        volumeMounts:
+        - name: model-storage
+          mountPath: /workspace/models
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 60
+          periodSeconds: 30
+      volumes:
+      - name: model-storage
+        persistentVolumeClaim:
+          claimName: reasonborn-models

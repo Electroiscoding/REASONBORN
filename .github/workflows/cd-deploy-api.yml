@@ -1,0 +1,36 @@
+name: Deploy ReasonBorn API to Kubernetes
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Login to DockerHub
+      uses: docker/login-action@v2
+      with:
+        username: ${{ secrets.DOCKER_USER }}
+        password: ${{ secrets.DOCKER_PASSWORD }}
+
+    - name: Build and push Docker image
+      uses: docker/build-push-action@v4
+      with:
+        context: .
+        file: ./deploy/Dockerfile
+        push: true
+        tags: reasonborn-api:${{ github.ref_name }},reasonborn-api:latest
+
+    - name: Set up Kubectl
+      uses: azure/setup-kubectl@v3
+
+    - name: Deploy to K8s Cluster
+      env:
+        KUBECONFIG: ${{ secrets.KUBE_CONFIG }}
+      run: |
+        kubectl apply -f deploy/kubernetes/pvc_storage.yaml
+        kubectl apply -f deploy/kubernetes/server_deploy.yaml
+        kubectl apply -f deploy/kubernetes/hpa.yaml

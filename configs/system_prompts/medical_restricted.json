@@ -1,0 +1,67 @@
+{
+    "metadata": {
+        "version": "1.0",
+        "operator_id": "medical_supervisor",
+        "timestamp": "2025-10-12T10:00:00Z",
+        "description": "High-risk medical domain with mandatory review"
+    },
+    "mode": "restricted",
+    "outputs": {
+        "allowed_types": [
+            "summary",
+            "proofs"
+        ],
+        "format": "markdown",
+        "max_tokens": 4096,
+        "verbosity": "detailed"
+    },
+    "safety": {
+        "sensitivity": "maximum",
+        "require_human_approval": [
+            "medical"
+        ],
+        "prohibited_topics": [
+            "unverified_treatments",
+            "diagnosis_without_context"
+        ],
+        "max_uncertainty": 0.1,
+        "refuse_speculation": true
+    },
+    "explainability": {
+        "emit_proofs": true,
+        "emit_trace": "full",
+        "emit_confidence": true,
+        "emit_provenance": true,
+        "citation_style": "endnote"
+    },
+    "resources": {
+        "max_tokens": 4096,
+        "max_wall_time_ms": 15000,
+        "max_reasoning_depth": 4,
+        "max_retrieval_queries": 15,
+        "max_verification_attempts": 5
+    },
+    "privacy": {
+        "mode": "dp_strict",
+        "epsilon": 0.5,
+        "delta": 1e-06,
+        "data_retention": "none",
+        "anonymization": true
+    },
+    "provenance": {
+        "policy": "require_citation",
+        "trace_depth": "full",
+        "source_verification": true
+    },
+    "domain": {
+        "specialization": "medical",
+        "knowledge_cutoff": "2025-01-31",
+        "allowed_sources": [
+            "pubmed",
+            "cochrane",
+            "uptodate",
+            "medical_textbooks"
+        ],
+        "require_domain_validation": true
+    }
+}

@@ -1,0 +1,40 @@
+# ============================================================================
+# ReasonBorn Domain Fine-tuning Configuration — Optimized for AMD MI300X
+# Target A: 1x MI300X (192 GB HBM3) → batch_size 1024
+# Target B: 8x MI300X (1.5 TB HBM3) → effective batch 8192
+# ============================================================================
+
+num_epochs: 3
+sequence_length: 2048
+
+# --- Batch Size (tuned for 192GB VRAM, finetuning uses more memory per sample) ---
+batch_size: 1024
+
+optimizer:
+  type: "adamw"
+  learning_rate: 1.0e-5
+  beta1: 0.9
+  beta2: 0.95
+  weight_decay: 0.1
+
+lr_scheduler:
+  type: "linear_with_warmup"
+  warmup_ratio: 0.1
+
+curriculum_learning:
+  enabled: true
+  difficulty_metrics:
+    - length
+    - reasoning_depth
+    - prerequisite_count
+  num_stages: 5
+
+loss_weights:
+  task_loss: 1.0
+  reasoning_loss: 0.5
+  retrieval_loss: 0.3
+
+# --- ROCm-specific ---
+rocm:
+  target_arch: "gfx942"
+  mixed_precision: "bf16"

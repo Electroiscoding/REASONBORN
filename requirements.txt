@@ -1,6 +1,54 @@
-# Remove any strict nvidia/cuda packages
-torch==2.1.0  # (Pip will resolve to the ROCm wheel via the Dockerfile's extra-index-url)
-deepspeed==0.11.0 # DeepSpeed supports ROCm out of the box
-# Note: Standard flash-attention requires a ROCm-specific compilation fork on AMD.
-# If you use Flash Attention, you must compile it from the ROCm fork:
-git+https://github.com/ROCm/flash-attention.git
+# ============================================================================
+# ReasonBorn SS-SLM — AMD ROCm Dependencies
+# Install via: pip install -r requirements.txt --extra-index-url https://download.pytorch.org/whl/rocm6.1
+# ============================================================================
+
+# --- Core ML Framework (ROCm wheels resolved via --extra-index-url) ---
+torch==2.1.2
+torchvision==0.16.2
+torchaudio==2.1.2
+
+# --- Training & Orchestration ---
+transformers==4.35.0
+datasets==2.14.0
+accelerate==0.24.0
+deepspeed==0.11.0
+wandb==0.16.0
+tensorboard==2.15.0
+
+# --- Numerical & Scientific ---
+numpy==1.24.3
+scipy==1.11.3
+scikit-learn==1.3.2
+pandas==2.1.3
+tqdm==4.66.1
+sympy==1.12
+
+# --- Formal Verification ---
+z3-solver==4.12.2.0
+
+# --- Vector Search (CPU-based FAISS, compatible with all backends) ---
+faiss-cpu==1.7.4
+
+# --- Embeddings & NLP ---
+sentence-transformers==2.2.2
+datasketch>=1.6.0
+
+# --- Privacy ---
+opacus>=1.4.0
+
+# --- Serving ---
+fastapi>=0.104.0
+uvicorn>=0.23.2
+pydantic>=2.4.2
+pyyaml>=6.0
+
+# --- ROCm Flash Attention (install separately via Dockerfile or manually) ---
+# pip install git+https://github.com/ROCm/flash-attention.git@main
+
+# ============================================================================
+# REMOVED NVIDIA-ONLY PACKAGES:
+#   - nvidia-cublas-cu12, nvidia-cuda-runtime-cu12 (not applicable on ROCm)
+#   - faiss-gpu (NVIDIA CUDA-only; use faiss-cpu or compile faiss from source with ROCm)
+#   - torch-tensorrt (NVIDIA TensorRT; use MIGraphX for AMD inference optimization)
+# ============================================================================
