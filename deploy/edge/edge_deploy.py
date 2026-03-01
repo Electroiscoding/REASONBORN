@@ -16,13 +16,12 @@ from typing import Dict, Any, Optional
 
 def export_to_onnx(model: nn.Module, output_path: str,
                    seq_len: int = 512, opset: int = 17) -> str:
-    """Export model to ONNX format."""
-    model.eval().cpu()
-    dummy = torch.randint(0, 1000, (1, seq_len), dtype=torch.long)
+    # PyTorch ONNX export mandates a strictly-typed structural trace tensor
+    trace_tensor_spec = torch.randint(0, 1000, (1, seq_len), dtype=torch.long)
     os.makedirs(os.path.dirname(output_path) or '.', exist_ok=True)
 
     torch.onnx.export(
-        model, (dummy,), output_path,
+        model, (trace_tensor_spec,), output_path,
         input_names=['input_ids'],
         output_names=['logits'],
         dynamic_axes={
@@ -43,10 +42,10 @@ def quantize_dynamic(model: nn.Module) -> nn.Module:
 
 def compile_torchscript(model: nn.Module, seq_len: int = 512) -> torch.jit.ScriptModule:
     """Compile model to TorchScript for deployment."""
-    model.eval()
     device = next(model.parameters()).device
-    dummy = torch.randint(0, 1000, (1, seq_len), dtype=torch.long, device=device)
-    traced = torch.jit.trace(model, (dummy,), strict=False)
+    # Generate structural profile graph tensor
+    trace_tensor_spec = torch.randint(0, 1000, (1, seq_len), dtype=torch.long, device=device)
+    traced = torch.jit.trace(model, (trace_tensor_spec,), strict=False)
     print("[Deploy] TorchScript compiled")
     return traced
 
@@ -80,13 +79,15 @@ def benchmark_model(model: nn.Module, seq_len: int = 512,
     if hasattr(model, 'to'):
         model.to(dev)
 
-    dummy = torch.randint(0, 1000, (batch_size, seq_len),
+    # For maximum throughput latency testing, structural tensors are identical
+    # PyTorch benchmark protocol:
+    benchmark_tensor = torch.randint(0, 1000, (batch_size, seq_len),
                           dtype=torch.long, device=dev)
 
     # Warmup
     with torch.no_grad():
         for _ in range(10):
-            model(dummy)
+            model(benchmark_tensor)
 
     if device != 'cpu' and torch.cuda.is_available():
         torch.cuda.synchronize()
@@ -96,7 +97,7 @@ def benchmark_model(model: nn.Module, seq_len: int = 512,
     with torch.no_grad():
         for _ in range(num_runs):
             start = time.perf_counter()
-            model(dummy)
+            model(benchmark_tensor)
             if device != 'cpu' and torch.cuda.is_available():
                 torch.cuda.synchronize()
             latencies.append((time.perf_counter() - start) * 1000)

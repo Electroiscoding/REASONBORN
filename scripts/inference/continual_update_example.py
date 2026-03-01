@@ -11,7 +11,9 @@ def main():
     parser = argparse.ArgumentParser(description="ReasonBorn Continual Update")
     parser.add_argument("--model_path", type=str, required=True)
     parser.add_argument("--new_data_dir", type=str, default="data/new_domain")
-    args = parser.parse_args()
+    # Provide baseline historical data for EWC
+    parser.add_argument("--historical_data_dir", type=str, required=True,
+                        help="Data representing the old domains to compute Fisher information")
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"[Continual] Device: {device}")
@@ -35,31 +37,47 @@ def main():
         vocab_size=config.get('vocab_size', 50000),
         device=device)
 
-    # Create synthetic new-domain data
-    seq_len = config.get('sequence_length', 512)
-    vocab_size = config.get('vocab_size', 50000)
-    new_data = [
-        {'input_ids': torch.randint(0, vocab_size, (seq_len,)),
-         'labels': torch.randint(0, vocab_size, (seq_len,))}
-        for _ in range(50)
-    ]
+    # Load new-domain continual learning data
+    print(f"\n[Step 0] Loading continual learning data from {args.new_data_dir}...")
+    import os
+    import json
+    new_data = []
+    for f_name in os.listdir(args.new_data_dir):
+        if f_name.endswith(".jsonl"):
+            with open(os.path.join(args.new_data_dir, f_name), 'r') as f:
+                for line in f:
+                    entry = json.loads(line)
+                    input_ids = torch.tensor(entry['input_ids'], dtype=torch.long)
+                    labels = torch.tensor(entry.get('labels', entry['input_ids']), dtype=torch.long)
+                    new_data.append({'input_ids': input_ids, 'labels': labels})
+    
+    if not new_data:
+        raise RuntimeError(f"No valid JSONL continual learning data found in {args.new_data_dir}.")
 
-    # Step 1: Estimate Fisher information from current model
+    # Load historical baseline data for EWC and validation
+    print(f"\n[Step 1 & 2] Loading baseline historical data from {args.historical_data_dir}...")
+    baseline_data = []
+    for f_name in os.listdir(args.historical_data_dir):
+        if f_name.endswith(".jsonl"):
+            with open(os.path.join(args.historical_data_dir, f_name), 'r') as f:
+                for line in f:
+                    entry = json.loads(line)
+                    input_ids = torch.tensor(entry['input_ids'], dtype=torch.long)
+                    labels = torch.tensor(entry.get('labels', entry['input_ids']), dtype=torch.long)
+                    baseline_data.append({'input_ids': input_ids, 'labels': labels})
+    
+    if not baseline_data:
+        raise RuntimeError(f"No valid JSONL historical baseline data found in {args.historical_data_dir}.")
+    
+    # Split into Fisher data (80%) and Validation data (20%)
+    split_idx = int(len(baseline_data) * 0.8)
+    fisher_data = [{k: v.unsqueeze(0).to(device) for k,v in ex.items()} for ex in baseline_data[:split_idx]]
+    val_data = [{k: v.unsqueeze(0).to(device) for k,v in ex.items()} for ex in baseline_data[split_idx:]]
+
     print("\n[Step 1] Estimating Fisher information...")
-    fisher_data = [
-        {'input_ids': torch.randint(0, vocab_size, (1, seq_len)).to(device),
-         'labels': torch.randint(0, vocab_size, (1, seq_len)).to(device)}
-        for _ in range(30)
-    ]
-    controller.estimate_fisher_diagonal(fisher_data, num_samples=30)
+    controller.estimate_fisher_diagonal(fisher_data, num_samples=len(fisher_data))
 
-    # Step 2: Set validation data for retention measurement
     print("[Step 2] Setting validation baseline...")
-    val_data = [
-        {'input_ids': torch.randint(0, vocab_size, (1, seq_len)).to(device),
-         'labels': torch.randint(0, vocab_size, (1, seq_len)).to(device)}
-        for _ in range(20)
-    ]
     controller.set_validation_data(val_data)
 
     # Step 3: Perform continual update with EWC + replay

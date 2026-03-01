@@ -5,7 +5,7 @@ Includes:
 - Rotary Positional Embeddings (RoPE) with cached cos/sin
 - Strictly enforced causal masking (autoregressive)
 - Local sliding-window attention mask
-- Gated local/global combination
+- Flash Attention 2 backend via PyTorch SDPA (MI300X CDNA3 optimized)
 
 Per ReasonBorn.md Section 4.2.
 """
@@ -53,7 +53,9 @@ class RotaryPositionalEmbedding(nn.Module):
 class HybridAttentionLayer(nn.Module):
     """
     Module [2]: Production Hybrid local sliding-window + global token aggregation.
-    Includes strictly enforced causal masking and RoPE.
+    Routes to Flash Attention 2 backend via PyTorch's scaled_dot_product_attention
+    when available (MI300X CDNA3 / ROCm 7.0). Falls back to manual SDPA with
+    explicit causal + sliding window mask on unsupported hardware.
     """
 
     def __init__(self, config):
@@ -71,6 +73,23 @@ class HybridAttentionLayer(nn.Module):
             self.head_dim, getattr(config, 'max_seq_len',
                                    getattr(config, 'sequence_length', 8192)))
 
+        # Determine attention backend from config
+        self.attn_impl = getattr(config, 'attn_implementation', 'sdpa')
+        self._use_flash = self.attn_impl in ('flash_attention_2', 'flash')
+
+        # Check if Flash Attention is actually available at import time
+        if self._use_flash:
+            self._flash_available = hasattr(
+                torch.nn.functional, 'scaled_dot_product_attention')
+            if not self._flash_available:
+                import warnings
+                warnings.warn(
+                    "flash_attention_2 requested but "
+                    "F.scaled_dot_product_attention not available. "
+                    "Falling back to manual attention.")
+        else:
+            self._flash_available = False
+
     def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
         B, T, C = hidden_states.shape
         qkv = self.qkv_proj(hidden_states)
@@ -83,33 +102,56 @@ class HybridAttentionLayer(nn.Module):
         # Apply RoPE
         q, k = self.rotary_emb(q, k, T)
 
-        # Scaled Dot-Product
-        scores = torch.matmul(q, k.transpose(-2, -1)) / math.sqrt(self.head_dim)
+        # ═══════════════════════════════════════════════════════════
+        # Flash Attention 2 path — fused kernel, O(T) memory
+        # Uses PyTorch's SDPA which routes to flash_attn on ROCm/CUDA
+        # when is_causal=True. Sliding window is applied post-hoc
+        # via the mask when the kernel doesn't support it natively.
+        # ═══════════════════════════════════════════════════════════
+        if self._flash_available:
+            # For sequences within the local window, pure causal flash
+            # is mathematically identical to sliding-window causal.
+            # For longer sequences, we build an explicit mask.
+            if T <= self.w_local:
+                # Pure causal — flash kernel handles this optimally
+                out = F.scaled_dot_product_attention(
+                    q, k, v, attn_mask=None, is_causal=True,
+                    dropout_p=0.0)
+            else:
+                # Build sliding-window causal mask for SDPA
+                mask = self._build_sliding_causal_mask(T, hidden_states.device)
+                out = F.scaled_dot_product_attention(
+                    q, k, v, attn_mask=mask, is_causal=False,
+                    dropout_p=0.0)
+        else:
+            # ═══════════════════════════════════════════════════════
+            # Manual attention fallback (no flash kernel)
+            # ═══════════════════════════════════════════════════════
+            scores = torch.matmul(q, k.transpose(-2, -1)) / math.sqrt(self.head_dim)
+            mask = self._build_sliding_causal_mask(T, hidden_states.device)
+            scores = scores + mask
+            probs = F.softmax(scores, dim=-1)
+            out = torch.matmul(probs, v)
 
-        # Correct sliding-window causal mask (Mistral/Gemma-2 standard)
-        # Start with all positions masked (-inf), then unmask valid ones
-        mask = torch.full((T, T), float('-inf'), device=hidden_states.device)
+        out = out.transpose(1, 2).contiguous().view(B, T, C)
+        return self.out_proj(out)
 
-        i = torch.arange(T, device=hidden_states.device)
+    def _build_sliding_causal_mask(
+        self, T: int, device: torch.device
+    ) -> torch.Tensor:
+        """
+        Builds a combined causal + sliding-window attention mask.
+        Returns a [1, 1, T, T] additive mask with -inf for blocked positions.
+        """
+        mask = torch.full((T, T), float('-inf'), device=device)
+        i = torch.arange(T, device=device)
+
         # Causal: position i can attend to positions j where j <= i
-        mask = mask.masked_fill(
-            i.unsqueeze(1) >= i.unsqueeze(0), 0.0)
+        mask = mask.masked_fill(i.unsqueeze(1) >= i.unsqueeze(0), 0.0)
 
         # Sliding window: cut off positions more than w_local in the past
         too_old = i.unsqueeze(0) < (i.unsqueeze(1) - self.w_local)
         mask = mask.masked_fill(too_old, float('-inf'))
 
         # Broadcast to [1, 1, T, T] for multi-head
-        mask = mask[None, None, :, :]
-
-        # Additive mask (more numerically stable than masked_fill)
-        scores = scores + mask
-
-        # Attention probabilities
-        probs = F.softmax(scores, dim=-1)
-
-        # Compute output
-        out = torch.matmul(probs, v)
-        out = out.transpose(1, 2).contiguous().view(B, T, C)
-
-        return self.out_proj(out)
+        return mask[None, None, :, :]

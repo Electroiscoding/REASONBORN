@@ -27,16 +27,10 @@ def load_truthfulqa(max_samples: int = 200) -> List[Dict]:
             })
         return examples
     except Exception as e:
-        print(f"Failed to load TruthfulQA: {e}. Using synthetic data.")
-        return [
-            {'question': 'What is the capital of France?',
-             'best_answer': 'Paris', 'correct_answers': ['Paris'],
-             'incorrect_answers': ['London'], 'category': 'geography'},
-            {'question': 'Can goldfish remember things for more than 3 seconds?',
-             'best_answer': 'Yes, goldfish can remember things for months.',
-             'correct_answers': ['Yes'], 'incorrect_answers': ['No'],
-             'category': 'misconceptions'},
-        ] * min(max_samples // 2, 50)
+        raise RuntimeError(
+            f"Failed to load TruthfulQA from HuggingFace dataset: {e}. "
+            f"Authentic rigorous evaluation requires real data downloads."
+        )
 
 
 def evaluate_hallucinations(model_path: str, max_samples: int = 200,

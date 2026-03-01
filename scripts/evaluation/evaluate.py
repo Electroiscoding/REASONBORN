@@ -48,16 +48,12 @@ def load_benchmark(benchmark: str, split: str = "test",
                       "answer": ex["best_answer"]}
                     for ex in list(ds)[:max_samples]]
         else:
-            print(f"Unknown benchmark: {benchmark}, using synthetic data")
+            raise ValueError(f"Unknown benchmark: {benchmark}")
     except Exception as e:
-        print(f"Failed to load {benchmark} from HuggingFace: {e}")
-        print("Using synthetic evaluation data")
-
-    # Synthetic fallback
-    return [
-        {"question": f"What is {i} + {i*2}?", "answer": str(i + i * 2)}
-        for i in range(min(max_samples, 100))
-    ]
+        raise RuntimeError(
+            f"Failed to load {benchmark} from HuggingFace: {e}. "
+            f"Real evaluation data is required for assessment."
+        )
 
 
 def evaluate_model(system, examples: List[Dict], max_tokens: int = 256

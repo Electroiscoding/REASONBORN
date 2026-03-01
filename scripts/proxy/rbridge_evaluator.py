@@ -6,11 +6,13 @@ reasoning traces, calculates exact per-token Cross-Entropy (NLL), and
 outputs structured JSON telemetry for dataset mixture ranking.
 
 No foreign/frontier models. Pure mathematical comparison via NLL.
+Target: AMD Instinct MI300X (192GB HBM3) — BF16 precision.
 """
 
 import os
 import sys
 import json
+import time
 import torch
 from pathlib import Path
 
@@ -48,9 +50,14 @@ class NativeRBridgeEvaluator:
         checkpoint = torch.load(ckpt_path, map_location=self.device)
         self.model.load_state_dict(checkpoint)
         self.model.eval()
-        self.model.to(self.device)
+        # Cast to BF16 and move to device in one shot
+        self.model.to(dtype=torch.bfloat16, device=self.device)
         print(f"Proxy loaded successfully. Parameters: "
               f"{sum(p.numel() for p in self.model.parameters()):,}")
+        if self.device.type == 'cuda':
+            print(f"  GPU: {torch.cuda.get_device_name(0)}")
+            vram_gb = torch.cuda.get_device_properties(0).total_mem / (1024**3)
+            print(f"  VRAM: {vram_gb:.0f} GB | Precision: BFloat16")
 
     @torch.no_grad()
     def evaluate_ground_truth(
@@ -76,10 +83,12 @@ class NativeRBridgeEvaluator:
 
         total_nll = 0.0
         total_tokens = 0
+        eval_start = time.time()
 
         for item in valid_data:
             tokens = torch.tensor(
-                item['input_ids'], dtype=torch.long).to(self.device)
+                item['input_ids'], dtype=torch.long).to(
+                    self.device, non_blocking=True)
 
             # IMPORTANT: Pass full sequence as both input_ids and labels.
             # Our forward() handles the autoregressive shift internally:
@@ -89,14 +98,18 @@ class NativeRBridgeEvaluator:
             # the first prediction.
             input_ids = tokens.unsqueeze(0)
 
-            # Forward pass through the proxy ReasonBorn
-            outputs = self.model(input_ids=input_ids, labels=input_ids)
+            # Forward pass with BF16 autocast for MI300X CDNA3 matrix cores
+            with torch.autocast(device_type='cuda', dtype=torch.bfloat16,
+                                enabled=(self.device.type == 'cuda')):
+                outputs = self.model(input_ids=input_ids, labels=input_ids)
 
             # outputs.loss is mean CE over (seq_len - 1) valid positions
             # Multiply by (seq_len - 1) to get raw sum of NLL
             seq_len = tokens.shape[0] - 1  # shifted positions
             total_nll += outputs.loss.item() * seq_len
             total_tokens += seq_len
+
+        eval_elapsed = time.time() - eval_start
 
         # Calculate exact rBridge proxy score
         rbridge_score = total_nll / total_tokens
@@ -109,6 +122,9 @@ class NativeRBridgeEvaluator:
             "rbridge_nll_score": rbridge_score,
             "perplexity": torch.exp(
                 torch.tensor(rbridge_score)).item(),
+            "eval_time_seconds": round(eval_elapsed, 2),
+            "precision": "bfloat16",
+            "device": torch.cuda.get_device_name(0) if self.device.type == 'cuda' else "cpu",
         }
 
         # Append to master JSON tracking log
@@ -125,14 +141,15 @@ class NativeRBridgeEvaluator:
             json.dump(existing_logs, f, indent=4)
 
         print(f"[{proxy_name}] rBridge Native Score: {rbridge_score:.4f} "
-              f"| Perplexity: {result_data['perplexity']:.4f}")
+              f"| Perplexity: {result_data['perplexity']:.4f} "
+              f"| Eval Time: {eval_elapsed:.1f}s")
         return rbridge_score
 
 
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser(
-        description="rBridge NLL Evaluator for ReasonBorn Proxies")
+        description="rBridge NLL Evaluator — AMD MI300X / ROCm 7.0")
     parser.add_argument("--checkpoint_dir", required=True,
                         help="Directory containing model.pt")
     parser.add_argument("--config", required=True,

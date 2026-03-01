@@ -140,18 +140,13 @@ def main():
             seq_len=config.get('sequence_length', 2048),
         )
         train_loader = data_loader.get_loader()
-    except Exception:
-        # Synthetic fallback
-        from torch.utils.data import TensorDataset
-        seq_len = config.get('sequence_length', 2048)
-        batch_size = config.get('batch_size', 32)
-        dummy_ids = torch.randint(0, model_config.vocab_size, (1000, seq_len))
-        dataset = TensorDataset(dummy_ids, dummy_ids.clone())
-        sampler = DistributedSampler(dataset) if world_size > 1 else None
-        train_loader = DataLoader(dataset, batch_size=batch_size,
-                                  sampler=sampler, shuffle=(sampler is None))
+    except Exception as e:
         if rank == 0:
-            print("[Phase 1] WARNING: Using synthetic data (no real data found)")
+            print(f"[Phase 1] FATAL: Failed to load pre-training data ({e}).")
+        raise RuntimeError(
+            f"Pre-training requires real tokenized datasets in {args.data_dir}. "
+            f"Please run `python scripts/data/prepare_pretraining_data.py` first."
+        )
 
     # Optimizer
     opt_config = config.get('optimizer', {})

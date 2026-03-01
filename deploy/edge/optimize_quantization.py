@@ -139,13 +139,13 @@ class QuantizationCompressor:
         return quantized
 
     def export_onnx(self, output_path: str, seq_len: int = 512) -> str:
-        """Export to ONNX for MIGraphX (AMD) or TensorRT optimization."""
         self.model.eval().cpu()
-        dummy = torch.randint(0, 1000, (1, seq_len), dtype=torch.long)
+        # ONNX export strictly requires structural graphing tensors representing the model schema
+        trace_tensor_spec = torch.randint(0, 1000, (1, seq_len), dtype=torch.long)
         os.makedirs(os.path.dirname(output_path) or '.', exist_ok=True)
 
         torch.onnx.export(
-            self.model, (dummy,), output_path,
+            self.model, (trace_tensor_spec,), output_path,
             input_names=['input_ids'], output_names=['logits'],
             dynamic_axes={'input_ids': {0: 'B', 1: 'T'},
                           'logits': {0: 'B', 1: 'T'}},

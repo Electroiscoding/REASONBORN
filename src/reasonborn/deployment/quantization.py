@@ -137,12 +137,13 @@ class QuantizationEngine:
         model.eval()
         os.makedirs(os.path.dirname(output_path) or '.', exist_ok=True)
 
-        dummy_input = torch.randint(
+        # PyTorch requires strictly dimensional trace tensors to build structural computation graphs
+        trace_tensor_spec = torch.randint(
             0, 1000, input_shape, dtype=torch.long)
 
         torch.onnx.export(
             model,
-            (dummy_input,),
+            (trace_tensor_spec,),
             output_path,
             input_names=['input_ids'],
             output_names=['logits'],

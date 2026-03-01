@@ -140,10 +140,11 @@ class CurriculumManager:
         jsonl_files = sorted(glob.glob(os.path.join(self.data_dir, "*.jsonl")))
 
         if not jsonl_files:
-            print(f"[CurriculumManager] WARNING: No .jsonl files in {self.data_dir}")
-            print(f"[CurriculumManager] Generating synthetic curriculum data (500 samples)")
-            self._generate_synthetic_data()
-            return
+            raise RuntimeError(
+                f"[CurriculumManager] FATAL: No .jsonl files found in {self.data_dir}. "
+                f"Curriculum learning requires real tokenized dataset slices. "
+                f"Please run data preparation scripts first."
+            )
 
         print(f"[CurriculumManager] Loading {len(jsonl_files)} files from {self.data_dir}...")
         for filepath in jsonl_files:
@@ -170,20 +171,6 @@ class CurriculumManager:
                     self.all_samples.append(sample)
 
         print(f"[CurriculumManager] Loaded {len(self.all_samples)} samples")
-
-    def _generate_synthetic_data(self) -> None:
-        """Generate synthetic data for testing when no real data exists."""
-        for i in range(500):
-            # Vary length to create difficulty spread
-            length = random.randint(64, self.seq_len)
-            input_ids = [random.randint(1, self.vocab_size - 1) for _ in range(length)]
-            difficulty = self._compute_difficulty(input_ids)
-            self.all_samples.append(ScoredSample(
-                input_ids=input_ids,
-                labels=input_ids,
-                difficulty=difficulty,
-                domain="synthetic",
-            ))
 
     def _compute_difficulty(self, input_ids: List[int]) -> float:
         """
