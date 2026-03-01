@@ -2,7 +2,7 @@
 # │  ReasonBorn 100M Proxy Configuration                           │
 # │  Exact architectural replica of the 32B model at micro scale   │
 # │  Used for dataset mixture ranking via rBridge evaluation       │
-# │  Target: AMD Instinct MI300X (192GB HBM3) — BF16 precision    │
+# │  Target: AMD Instinct MI300X (192GB HBM3) — BF16 precision     │
 # └─────────────────────────────────────────────────────────────────┘
 
 model:
