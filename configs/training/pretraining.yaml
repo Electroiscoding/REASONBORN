@@ -1,19 +1,18 @@
 # ============================================================================
-# ReasonBorn Pre-training Configuration — Optimized for NVIDIA T4 (Kaggle)
-# Target: Dual NVIDIA T4 (16 GB VRAM each, Turing architecture)
-# Precision: FP16 (Turing Tensor Cores)
+# ReasonBorn Pre-training Configuration — Optimized for AMD MI300X (192GB)
+# Target: 8x AMD Instinct MI300X (192GB HBM3 each, CDNA3 architecture)
+# Precision: BF16 (Native CDNA3 Matrix Cores)
 # ============================================================================
 
 num_epochs: 1
-sequence_length: 2048
+sequence_length: 8192  # 4x larger context, made possible by 192GB VRAM
 gradient_clipping: 1.0
 
-# --- Batch Size (tuned for 16GB VRAM per T4) ---
-# Single T4 can fit ~128 batch with fp16 for a 500M param model
-batch_size: 128
-gradient_accumulation_steps: 4
-# 2x T4: 128 * 4 * 2 = 1024 effective batch
-effective_batch_size: 1024
+# --- Batch Size (tuned for 192GB VRAM per MI300X) ---
+# MI300X can comfortably fit an enormous batch size in bf16
+batch_size: 4096
+gradient_accumulation_steps: 1 # We can rely on true batch size to avoid accumulator delays
+effective_batch_size: 32768    # 4096 * 8 GPUs!
 
 optimizer:
   type: "adamw"
@@ -29,14 +28,14 @@ lr_scheduler:
   max_steps: 500000
   min_lr: 3.0e-5
 
-# FP16 is natively supported on T4 (Turing Tensor Cores)
-mixed_precision: "fp16"
+# BF16 is natively supported by CDNA3 Matrix Cores, without GradScaler needed
+mixed_precision: "bf16"
 
 loss_weights:
   mlm: 1.0
   contrastive: 0.1
   verification: 0.05
 
-# --- CUDA-specific ---
-cuda:
-  attn_implementation: "sdpa"
+# --- ROCm-specific ---
+rocm:
+  attn_implementation: "flash_attention_2"

@@ -1,9 +1,9 @@
 """
-Phase 1 Pre-Training Script — NVIDIA T4 Optimized
+Phase 1 Pre-Training Script — AMD MI300X Optimized
 =====================================================
-FSDP/DDP distributed training with FP16 mixed precision on NCCL backend.
+FSDP/DDP distributed training with BF16 mixed precision on RCCL backend.
 Per ReasonBorn.md Section 5.1.
-Supports dual T4 GPUs on Kaggle with GradScaler for FP16 stability.
+Supports massive 8x MI300X nodes with raw BF16 throughput (no GradScaler needed).
 """
 
 import os
@@ -18,12 +18,12 @@ import torch.nn.functional as F
 import torch.distributed as dist
 from torch.utils.data import DataLoader, DistributedSampler
 
-# NCCL is the communication backend for NVIDIA GPUs
-
+# RCCL is the communication backend for AMD GPUs (drop-in replacement for NCCL)
 
 def setup_distributed():
-    """Initialize distributed training (NCCL for NVIDIA T4)."""
+    """Initialize distributed training (RCCL for AMD MI300X)."""
     if 'RANK' in os.environ:
+        # Pytorch maps ROCm's RCCL transparently via the "nccl" string keyword
         dist.init_process_group(backend="nccl")
         rank = dist.get_rank()
         world_size = dist.get_world_size()
@@ -68,6 +68,7 @@ def main():
     args = parser.parse_args()
 
     rank, world_size, local_rank = setup_distributed()
+    # PyTorch ROCm hijacks the cuda namespace. 
     device = torch.device(f"cuda:{local_rank}" if torch.cuda.is_available() else "cpu")
 
     # Load config
@@ -76,7 +77,7 @@ def main():
 
     if rank == 0:
         print(f"[Phase 1] Pre-training on {world_size} device(s)")
-        print(f"[Phase 1] Device: {device}")
+        print(f"[Phase 1] Device: {device} (ROCm / MI300X)")
         print(f"[Phase 1] Config: {args.config}")
         os.makedirs(args.output_dir, exist_ok=True)
 
@@ -89,23 +90,25 @@ def main():
     except ImportError:
         pass
 
-    # Build model
+    # Build model directly into bfloat16 to avoid FP32 memory spike
     from reasonborn.architecture.backbone import ReasonBornSystem
     from types import SimpleNamespace
+    
+    # 32B Base Configuration Params
     model_config = SimpleNamespace(
-        d_model=config.get('d_model', 1024),
-        num_heads=config.get('num_heads', 16),
-        num_layers=config.get('num_layers', 24),
+        d_model=config.get('d_model', 4096),
+        num_heads=config.get('num_heads', 32),
+        num_layers=config.get('num_layers', 32),
         vocab_size=config.get('vocab_size', 50000),
-        sequence_length=config.get('sequence_length', 2048),
-        max_seq_len=config.get('sequence_length', 2048),
-        moe_expert_layers=set(config.get('moe_expert_layers', [])),
+        sequence_length=config.get('sequence_length', 8192),
+        max_seq_len=config.get('sequence_length', 8192),
+        moe_expert_layers=set(config.get('moe_expert_layers', list(range(1, 32, 2)))),
         num_experts=config.get('num_experts', 8),
         top_k=config.get('top_k', 2),
-        intermediate_size=config.get('intermediate_size', int(config.get('d_model', 1024) * 4 * 2 / 3)),
+        intermediate_size=config.get('intermediate_size', 10922),
         load_balance_loss_weight=config.get('load_balance_loss_weight', 0.01),
     )
-    model = ReasonBornSystem(model_config).to(device)
+    model = ReasonBornSystem(model_config).to(dtype=torch.bfloat16, device=device)
 
     if rank == 0:
         total_params = sum(p.numel() for p in model.parameters())
@@ -116,15 +119,15 @@ def main():
         try:
             from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
             from torch.distributed.fsdp import MixedPrecision
-            # FP16 mixed precision for T4 Tensor Cores
+            # BF16 mixed precision for AMD CDNA3 Matrix Cores
             mp_policy = MixedPrecision(
-                param_dtype=torch.float16,
-                reduce_dtype=torch.float16,
-                buffer_dtype=torch.float16,
+                param_dtype=torch.bfloat16,
+                reduce_dtype=torch.bfloat16,
+                buffer_dtype=torch.bfloat16,
             )
             model = FSDP(model, mixed_precision=mp_policy)
             if rank == 0:
-                print("[Phase 1] FSDP enabled with FP16 mixed precision")
+                print("[Phase 1] FSDP enabled with BF16 mixed precision")
         except Exception as e:
             if rank == 0:
                 print(f"[Phase 1] FSDP unavailable ({e}), using DDP")
@@ -134,12 +137,23 @@ def main():
     # Data loader
     from reasonborn.data.loader import PretrainingDataLoader
     try:
+        # Utilize maximum CPU host cores
+        num_cpu_workers = int(os.environ.get('REASONBORN_NUM_WORKERS', 16))
+        
         data_loader = PretrainingDataLoader(
             data_dir=args.data_dir,
-            batch_size=config.get('batch_size', 32),
-            seq_len=config.get('sequence_length', 2048),
+            batch_size=config.get('batch_size', 4096),
+            seq_len=config.get('sequence_length', 8192),
         )
-        train_loader = data_loader.get_loader()
+        
+        # Manually alter the actual dataloader worker count if accessible
+        if hasattr(data_loader, 'get_loader'):
+            train_loader = data_loader.get_loader()
+            if hasattr(train_loader, 'num_workers'):
+                train_loader.num_workers = num_cpu_workers
+        else:
+             train_loader = data_loader
+            
     except Exception as e:
         if rank == 0:
             print(f"[Phase 1] FATAL: Failed to load pre-training data ({e}).")
@@ -160,11 +174,6 @@ def main():
 
     scheduler = get_lr_scheduler(optimizer, config)
 
-    # Mixed precision — FP16 on T4 requires GradScaler for stability
-    use_amp = config.get('mixed_precision', 'fp16') in ('bf16', 'fp16')
-    amp_dtype = torch.float16  # T4 Turing: FP16 Tensor Cores
-    scaler = torch.amp.GradScaler('cuda', enabled=(use_amp and device.type == 'cuda'))
-
     # Resume from checkpoint
     start_step = 0
     if args.resume and os.path.exists(args.resume):
@@ -177,7 +186,7 @@ def main():
 
     # Training loop
     num_epochs = config.get('num_epochs', 1)
-    grad_accum = config.get('gradient_accumulation_steps', 2)
+    grad_accum = config.get('gradient_accumulation_steps', 1)
     grad_clip = config.get('gradient_clipping', 1.0)
     max_steps = config.get('lr_scheduler', {}).get('max_steps', 500000)
 
@@ -193,15 +202,18 @@ def main():
 
         for batch_idx, batch in enumerate(train_loader):
             if isinstance(batch, (list, tuple)):
-                input_ids = batch[0].to(device)
-                labels = batch[1].to(device) if len(batch) > 1 else input_ids.clone()
+                input_ids = batch[0].to(device, non_blocking=True)
+                labels = batch[1].to(device, non_blocking=True) if len(batch) > 1 else input_ids.clone()
             elif isinstance(batch, dict):
-                input_ids = batch['input_ids'].to(device)
-                labels = batch.get('labels', input_ids).to(device)
+                input_ids = batch['input_ids'].to(device, non_blocking=True)
+                labels = batch.get('labels', input_ids).to(device, non_blocking=True)
             else:
                 continue
+                
+            optimizer.zero_grad(set_to_none=True)
 
-            with torch.amp.autocast(device_type='cuda', dtype=amp_dtype, enabled=use_amp):
+            # Native AMD CDNA3 Forward Pass (NO GradScaler)
+            with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
                 outputs = model(input_ids=input_ids, labels=labels)
                 if isinstance(outputs, dict):
                     loss = outputs['loss']
@@ -209,21 +221,20 @@ def main():
                     loss = outputs.loss
                 loss = loss / grad_accum
 
-            scaler.scale(loss).backward()
+            loss.backward()
 
             if (batch_idx + 1) % grad_accum == 0:
                 if grad_clip > 0:
-                    scaler.unscale_(optimizer)
                     torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
-                scaler.step(optimizer)
-                scaler.update()
+                    
+                optimizer.step()
                 scheduler.step()
-                optimizer.zero_grad()
                 global_step += 1
 
                 if rank == 0 and global_step % 100 == 0:
                     lr = scheduler.get_last_lr()[0]
-                    print(f"  Step {global_step} | Loss: {loss.item() * grad_accum:.4f} | LR: {lr:.2e}")
+                    vram_used = torch.cuda.memory_allocated(local_rank) / (1024 ** 3)
+                    print(f"  Step {global_step} | Loss: {loss.item() * grad_accum:.4f} | LR: {lr:.2e} | VRAM: {vram_used:.1f} GB")
                     if wandb_run:
                         wandb.log({'train/loss': loss.item() * grad_accum,
                                    'train/lr': lr, 'train/step': global_step})

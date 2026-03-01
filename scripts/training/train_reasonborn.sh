@@ -1,39 +1,49 @@
 #!/bin/bash
 # ============================================================================
-# ReasonBorn Training Launcher — NVIDIA CUDA / T4 (Kaggle)
-# Target: Dual NVIDIA T4 (16 GB VRAM each)
-# Precision: FP16 (Turing Tensor Cores)
+# ReasonBorn Training Launcher — AMD ROCm / MI300X
+# Target: Massive AMD Instinct MI300X cluster (192 GB HBM3 each)
+# Precision: BF16 (CDNA3 Matrix Cores)
 # ============================================================================
 set -euo pipefail
 
-# --- NVIDIA CUDA Environment ---
-export CUDA_VISIBLE_DEVICES=0,1
+# --- AMD ROCm Environment ---
+# Assuming 8-GPU nodes mapped conventionally
+export HIP_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
+export HSA_OVERRIDE_GFX_VERSION=9.4.2   # MI300X CDNA3 architecture code
+export HSA_ENABLE_SDMA=1                # System DMA engine for async copies
+export PYTORCH_ROCM_ARCH="gfx942"       # Explicit MI300X ISA target
+export HIP_FORCE_DEV_KERNELS=1          # Force device-optimized kernels
+
+# --- CPU Data Loading ---
+export REASONBORN_NUM_WORKERS=$(nproc --all 2>/dev/null || echo 64)
 
 # --- Auto-detect GPU count ---
-NUM_GPUS=$(python3 -c "import torch; print(torch.cuda.device_count())" 2>/dev/null || echo "1")
-echo "[CUDA] Detected ${NUM_GPUS}x NVIDIA T4 GPU(s)"
+# Note: Pytorch via ROCm still uses the `torch.cuda` namespace
+NUM_GPUS=$(python3 -c "import torch; print(torch.cuda.device_count() if torch.cuda.is_available() else 0)" 2>/dev/null || echo "8")
+echo "[ROCm] Detected ${NUM_GPUS}x AMD MI300X GPU(s)"
 
-# --- Distributed backend (NCCL for NVIDIA GPUs) ---
+# --- Distributed backend (RCCL for AMD GPUs, mapped as NCCL) ---
 export MASTER_ADDR=${MASTER_ADDR:-"localhost"}
 export MASTER_PORT=${MASTER_PORT:-"29500"}
+export NCCL_SOCKET_IFNAME=${NCCL_SOCKET_IFNAME:-"^docker0,lo"} # Bypass useless adapters for RCCL
 
 # --- Parse args with defaults ---
 CONFIG=${1:-"configs/training/pretraining.yaml"}
-OUTPUT_DIR=${2:-"checkpoints"}
+OUTPUT_DIR=${2:-"checkpoints/phase1"}
 DATA_DIR=${3:-"data/pretraining"}
 
 mkdir -p "${OUTPUT_DIR}"
 
-echo "[CUDA] Starting ReasonBorn Pre-training"
-echo "[CUDA] Config:     ${CONFIG}"
-echo "[CUDA] Output:     ${OUTPUT_DIR}"
-echo "[CUDA] Data:       ${DATA_DIR}"
-echo "[CUDA] GPUs:       ${NUM_GPUS}"
-echo "[CUDA] Backend:    nccl"
-echo "[CUDA] Precision:  FP16"
+echo "[ROCm] Starting ReasonBorn Pre-training (Massive Scale)"
+echo "[ROCm] Config:     ${CONFIG}"
+echo "[ROCm] Output:     ${OUTPUT_DIR}"
+echo "[ROCm] Data:       ${DATA_DIR}"
+echo "[ROCm] GPUs:       ${NUM_GPUS}"
+echo "[ROCm] Backend:    rccl (mapped as nccl)"
+echo "[ROCm] Precision:  BF16 (Native)"
 
 if [ "${NUM_GPUS}" -gt 1 ]; then
-    echo "[CUDA] Launching distributed training with torchrun (${NUM_GPUS} processes)..."
+    echo "[ROCm] Launching distributed training with torchrun (${NUM_GPUS} processes)..."
     torchrun \
         --standalone \
         --nproc_per_node="${NUM_GPUS}" \
@@ -42,11 +52,11 @@ if [ "${NUM_GPUS}" -gt 1 ]; then
             --output_dir "${OUTPUT_DIR}" \
             --data_dir "${DATA_DIR}"
 else
-    echo "[CUDA] Launching single-GPU training..."
+    echo "[ROCm] Launching single-GPU training..."
     python3 scripts/training/train.py \
         --config "${CONFIG}" \
         --output_dir "${OUTPUT_DIR}" \
         --data_dir "${DATA_DIR}"
 fi
 
-echo "[CUDA] Training complete."
+echo "[ROCm] Training complete."
