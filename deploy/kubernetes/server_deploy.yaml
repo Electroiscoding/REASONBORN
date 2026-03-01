@@ -4,7 +4,7 @@ metadata:
   name: reasonborn-server
   labels:
     app: reasonborn
-    hardware: amd-mi300x
+    hardware: nvidia-t4
 spec:
   replicas: 1
   selector:
@@ -14,18 +14,18 @@ spec:
     metadata:
       labels:
         app: reasonborn
-        hardware: amd-mi300x
+        hardware: nvidia-t4
     spec:
-      # Target AMD Instinct GPU nodes
+      # Target NVIDIA GPU nodes
       nodeSelector:
-        accelerator: amd-mi300x
+        accelerator: nvidia-t4
       tolerations:
-      - key: "amd.com/gpu"
+      - key: "nvidia.com/gpu"
         operator: "Exists"
         effect: "NoSchedule"
       containers:
       - name: reasonborn
-        image: reasonborn-amd-rocm:latest
+        image: reasonborn-cuda:latest
         imagePullPolicy: Always
         ports:
         - containerPort: 8000
@@ -33,22 +33,18 @@ spec:
           protocol: TCP
         resources:
           limits:
-            amd.com/gpu: 1
-            memory: "200Gi"
-            cpu: "20"
+            nvidia.com/gpu: 2
+            memory: "40Gi"
+            cpu: "8"
           requests:
-            amd.com/gpu: 1
-            memory: "192Gi"
-            cpu: "16"
+            nvidia.com/gpu: 2
+            memory: "32Gi"
+            cpu: "4"
         env:
-        - name: HIP_VISIBLE_DEVICES
-          value: "0"
-        - name: HSA_OVERRIDE_GFX_VERSION
-          value: "9.4.2"
-        - name: PYTORCH_HIP_ALLOC_CONF
+        - name: CUDA_VISIBLE_DEVICES
+          value: "0,1"
+        - name: PYTORCH_CUDA_ALLOC_CONF
           value: "expandable_segments:True"
-        - name: PYTORCH_ROCM_ARCH
-          value: "gfx942"
         volumeMounts:
         - name: model-storage
           mountPath: /workspace/models

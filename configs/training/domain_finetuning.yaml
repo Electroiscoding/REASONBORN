@@ -1,14 +1,14 @@
 # ============================================================================
-# ReasonBorn Domain Fine-tuning Configuration — Optimized for AMD MI300X
-# Target A: 1x MI300X (192 GB HBM3) → batch_size 1024
-# Target B: 8x MI300X (1.5 TB HBM3) → effective batch 8192
+# ReasonBorn Domain Fine-tuning Configuration — Optimized for NVIDIA T4 (Kaggle)
+# Target: Dual NVIDIA T4 (16 GB VRAM each)
+# Precision: FP16 (Turing Tensor Cores)
 # ============================================================================
 
 num_epochs: 3
 sequence_length: 2048
 
-# --- Batch Size (tuned for 192GB VRAM, finetuning uses more memory per sample) ---
-batch_size: 1024
+# --- Batch Size (tuned for 16GB VRAM, finetuning uses more memory per sample) ---
+batch_size: 64
 
 optimizer:
   type: "adamw"
@@ -34,7 +34,7 @@ loss_weights:
   reasoning_loss: 0.5
   retrieval_loss: 0.3
 
-# --- ROCm-specific ---
-rocm:
-  target_arch: "gfx942"
-  mixed_precision: "bf16"
+# --- CUDA-specific ---
+cuda:
+  attn_implementation: "sdpa"
+  mixed_precision: "fp16"

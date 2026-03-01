@@ -1,8 +1,9 @@
 """
-Phase 2 Domain Fine-Tuning — AMD ROCm MI300X Optimized
+Phase 2 Domain Fine-Tuning — NVIDIA T4 CUDA Optimized
 ========================================================
 Curriculum-based domain specialization with multi-objective loss.
 Per ReasonBorn.md Section 5.2.
+FP16 mixed precision with GradScaler for Turing Tensor Cores.
 """
 
 import os
@@ -22,7 +23,7 @@ def main():
     parser.add_argument("--wandb_project", type=str, default="reasonborn")
     args = parser.parse_args()
 
-    # Distributed setup (ROCm: HIP maps cuda API, RCCL maps nccl)
+    # Distributed setup (NCCL for NVIDIA GPUs)
     if 'RANK' in os.environ:
         dist.init_process_group(backend="nccl")
         rank = dist.get_rank()
@@ -82,9 +83,10 @@ def main():
         lr=opt_cfg.get('learning_rate', 3e-5),
         weight_decay=opt_cfg.get('weight_decay', 0.01))
 
-    # Mixed precision (bf16 on MI300X)
-    use_amp = config.get('mixed_precision', 'bf16') in ('bf16', 'fp16')
-    amp_dtype = torch.bfloat16 if 'bf16' in str(config.get('mixed_precision', '')) else torch.float16
+    # Mixed precision — FP16 on T4 with GradScaler
+    use_amp = config.get('mixed_precision', 'fp16') in ('bf16', 'fp16')
+    amp_dtype = torch.float16  # T4 Turing: FP16 Tensor Cores
+    scaler = torch.amp.GradScaler('cuda', enabled=(use_amp and device.type == 'cuda'))
 
     # Training per stage
     epochs_per_stage = config.get('curriculum', {}).get('epochs_per_stage', 3)
@@ -120,10 +122,12 @@ def main():
                     loss = outputs['loss'] if isinstance(outputs, dict) else outputs.loss
 
                 optimizer.zero_grad()
-                loss.backward()
+                scaler.scale(loss).backward()
                 if grad_clip > 0:
+                    scaler.unscale_(optimizer)
                     torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
-                optimizer.step()
+                scaler.step(optimizer)
+                scaler.update()
 
                 epoch_loss += loss.item()
                 num_batches += 1

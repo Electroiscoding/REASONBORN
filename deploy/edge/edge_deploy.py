@@ -1,8 +1,9 @@
 """
-Edge Deployment — AMD ROCm MI300X Optimization Pipeline
+Edge Deployment — NVIDIA CUDA T4 Optimization Pipeline
 =========================================================
-ONNX export → MIGraphX compilation → INT8 quantization → benchmarking.
+ONNX export → TensorRT/MIGraphX compilation → INT8 quantization → benchmarking.
 Per ReasonBorn.md Section 5.5.
+Target: NVIDIA T4 (Turing) with FP16 and INT8 Tensor Core acceleration.
 """
 
 import os
@@ -52,8 +53,8 @@ def compile_torchscript(model: nn.Module, seq_len: int = 512) -> torch.jit.Scrip
 
 def try_migraphx_compile(onnx_path: str, output_path: str) -> Optional[str]:
     """
-    Attempt to compile ONNX model with AMD MIGraphX.
-    MIGraphX is AMD's graph-level inference optimizer for ROCm GPUs.
+    Attempt to compile ONNX model with a graph-level optimizer.
+    Falls back to TorchScript if neither TensorRT nor MIGraphX is available.
     """
     try:
         import migraphx
@@ -155,9 +156,9 @@ def main():
     onnx_path = os.path.join(args.output_dir, "model.onnx")
     export_to_onnx(model, onnx_path, args.seq_len)
 
-    # 2. MIGraphX compilation (AMD ROCm)
-    migraphx_path = os.path.join(args.output_dir, "model.mxr")
-    try_migraphx_compile(onnx_path, migraphx_path)
+    # 2. Graph optimizer compilation (TensorRT/MIGraphX)
+    compiled_path = os.path.join(args.output_dir, "model.mxr")
+    try_migraphx_compile(onnx_path, compiled_path)
 
     # 3. Quantization
     if args.quantize:

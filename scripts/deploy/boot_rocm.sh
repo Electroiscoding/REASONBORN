@@ -1,13 +1,13 @@
 #!/bin/bash
 # ============================================================================
-# ReasonBorn — ROCm Container Boot Script
-# Run from the REASONBORN project root on the AMD MI300X Droplet
+# ReasonBorn — NVIDIA CUDA Container Boot Script
+# Run from the REASONBORN project root
 #
 # Usage: bash scripts/deploy/boot_rocm.sh [build|run|both]
 # ============================================================================
 set -euo pipefail
 
-IMAGE_NAME="reasonborn-rocm"
+IMAGE_NAME="reasonborn-cuda"
 DOCKERFILE="deploy/Dockerfile"
 PROJECT_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 MODE="${1:-both}"
@@ -20,7 +20,7 @@ NC='\033[0m'
 
 echo -e "${CYAN}"
 echo "╔══════════════════════════════════════════════════════════════════════╗"
-echo "║            ReasonBorn — AMD ROCm Container Launcher                ║"
+echo "║            ReasonBorn — NVIDIA CUDA Container Launcher             ║"
 echo "╚══════════════════════════════════════════════════════════════════════╝"
 echo -e "${NC}"
 
@@ -35,9 +35,9 @@ if [ ! -f "${PROJECT_ROOT}/${DOCKERFILE}" ]; then
     exit 1
 fi
 
-# Check for AMD GPU devices
-if [ ! -e /dev/kfd ]; then
-    echo -e "${RED}[WARNING] /dev/kfd not found — AMD GPU may not be available.${NC}"
+# Check for NVIDIA GPU runtime
+if ! command -v nvidia-smi &> /dev/null; then
+    echo -e "${RED}[WARNING] nvidia-smi not found — NVIDIA GPU may not be available.${NC}"
     echo -e "${RED}          Continuing anyway (container will fall back to CPU).${NC}"
 fi
 
@@ -55,30 +55,23 @@ fi
 
 # ─── Run ─────────────────────────────────────────────────────────────────────
 if [[ "${MODE}" == "run" || "${MODE}" == "both" ]]; then
-    echo -e "${GREEN}[2/2] Launching ROCm container with AMD GPU passthrough...${NC}"
+    echo -e "${GREEN}[2/2] Launching CUDA container with NVIDIA GPU passthrough...${NC}"
     echo ""
-    echo "  --device=/dev/kfd       AMD Kernel Fusion Driver"
-    echo "  --device=/dev/dri       Direct Rendering Infrastructure"
-    echo "  --group-add=video       GPU device group access"
-    echo "  --shm-size=64g          Shared memory for FSDP/DataLoader"
+    echo "  --gpus all              All NVIDIA GPUs"
+    echo "  --shm-size=16g          Shared memory for DataLoader"
     echo "  --ipc=host              Inter-process communication"
     echo ""
 
     docker run -it --rm \
-        --device=/dev/kfd \
-        --device=/dev/dri \
-        --group-add=video \
-        --security-opt seccomp=unconfined \
+        --gpus all \
         --ipc=host \
-        --shm-size=64g \
+        --shm-size=16g \
         --name reasonborn-dev \
         -p 8000:8000 \
         -v "${PROJECT_ROOT}":/workspace/reasonborn \
         -w /workspace/reasonborn \
-        -e HIP_VISIBLE_DEVICES=all \
-        -e HSA_OVERRIDE_GFX_VERSION=9.4.2 \
-        -e PYTORCH_HIP_ALLOC_CONF=expandable_segments:True \
-        -e PYTORCH_ROCM_ARCH=gfx942 \
+        -e CUDA_VISIBLE_DEVICES=0,1 \
+        -e PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
         "${IMAGE_NAME}" \
         /bin/bash
 

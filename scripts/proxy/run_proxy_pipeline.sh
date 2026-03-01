@@ -4,9 +4,13 @@ set -e  # Exit immediately if a command exits with a non-zero status.
 # ┌─────────────────────────────────────────────────────────────────┐
 # │  REASONBORN PROXY TRAINING & EVALUATION PIPELINE               │
 # │  Foreign-model-free dataset mixture ranking via NLL            │
+# │  Target: Dual NVIDIA T4 on Kaggle                              │
 # └─────────────────────────────────────────────────────────────────┘
 
-# Define Paths
+# --- NVIDIA CUDA Environment (Dual T4) ---
+export CUDA_VISIBLE_DEVICES=0,1
+
+# Define Paths (Kaggle-native relative pathing)
 CONFIG="configs/proxy_100M.yaml"
 GROUND_TRUTH="data/processed/ground_truth_reasoning.jsonl"
 LOG_FILE="proxy_experiment_results.json"
@@ -17,6 +21,7 @@ echo "========================================================="
 echo " Config:       $CONFIG"
 echo " Ground Truth: $GROUND_TRUTH"
 echo " Results Log:  $LOG_FILE"
+echo " GPUs:         CUDA_VISIBLE_DEVICES=$CUDA_VISIBLE_DEVICES"
 echo "========================================================="
 
 # 1. Train Proxy A on Dataset Mixture A (e.g., Heavy Math Bias)

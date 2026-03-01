@@ -2,6 +2,7 @@
 # │  ReasonBorn 100M Proxy Configuration                           │
 # │  Exact architectural replica of the 32B model at micro scale   │
 # │  Used for dataset mixture ranking via rBridge evaluation       │
+# │  Target: Dual NVIDIA T4 (Kaggle) — FP16 precision             │
 # └─────────────────────────────────────────────────────────────────┘
 
 model:
@@ -16,7 +17,8 @@ model:
   max_seq_len: 2048
   w_local: 128
   dropout: 0.1
-  dtype: "bfloat16"
+  dtype: "float16"
+  attn_implementation: "sdpa"
   load_balance_loss_weight: 0.01
 
 learning:

@@ -1,19 +1,19 @@
 # ============================================================================
-# ReasonBorn Pre-training Configuration — Optimized for AMD MI300X
-# Target A: 1x MI300X (192 GB HBM3) → batch_size 4096
-# Target B: 8x MI300X (1.5 TB HBM3) → effective_batch_size 32768
+# ReasonBorn Pre-training Configuration — Optimized for NVIDIA T4 (Kaggle)
+# Target: Dual NVIDIA T4 (16 GB VRAM each, Turing architecture)
+# Precision: FP16 (Turing Tensor Cores)
 # ============================================================================
 
 num_epochs: 1
 sequence_length: 2048
 gradient_clipping: 1.0
 
-# --- Batch Size (tuned for 192GB VRAM per MI300X) ---
-# Single MI300X can fit ~4096 batch with bf16 for a 500M param model
-batch_size: 4096
-gradient_accumulation_steps: 2
-# 8x MI300X: 4096 * 2 * 8 = 65536 effective batch (or reduce accum for speed)
-effective_batch_size: 65536
+# --- Batch Size (tuned for 16GB VRAM per T4) ---
+# Single T4 can fit ~128 batch with fp16 for a 500M param model
+batch_size: 128
+gradient_accumulation_steps: 4
+# 2x T4: 128 * 4 * 2 = 1024 effective batch
+effective_batch_size: 1024
 
 optimizer:
   type: "adamw"
@@ -29,15 +29,14 @@ lr_scheduler:
   max_steps: 500000
   min_lr: 3.0e-5
 
-# bf16 is natively supported on MI300X (HBM3 matrix cores)
-mixed_precision: "bf16"
+# FP16 is natively supported on T4 (Turing Tensor Cores)
+mixed_precision: "fp16"
 
 loss_weights:
   mlm: 1.0
   contrastive: 0.1
   verification: 0.05
 
-# --- ROCm-specific ---
-rocm:
-  target_arch: "gfx942"
-  hip_alloc_conf: "expandable_segments:True"
+# --- CUDA-specific ---
+cuda:
+  attn_implementation: "sdpa"

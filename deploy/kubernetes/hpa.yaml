@@ -4,7 +4,7 @@ metadata:
   name: reasonborn-hpa
   labels:
     app: reasonborn
-    hardware: amd-mi300x
+    hardware: nvidia-t4
 spec:
   scaleTargetRef:
     apiVersion: apps/v1
@@ -19,11 +19,11 @@ spec:
       target:
         type: Utilization
         averageUtilization: 80
-  # AMD GPU utilization metric (requires AMD GPU device plugin + metrics exporter)
+  # NVIDIA GPU utilization metric (requires NVIDIA GPU device plugin + DCGM exporter)
   - type: Pods
     pods:
       metric:
-        name: amd_gpu_utilization
+        name: nvidia_gpu_utilization
       target:
         type: AverageValue
         averageValue: "80"

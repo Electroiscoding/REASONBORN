@@ -2,7 +2,7 @@
 Synthetic Proxy Data Generator
 =================================
 Generates JSONL files with tokenized sequences for testing the
-proxy pipeline locally before using real data on the MI300X.
+proxy pipeline locally before using real data on NVIDIA T4 (Kaggle).
 
 For production: replace these with real tokenized dataset slices.
 """

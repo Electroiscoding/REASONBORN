@@ -1,8 +1,9 @@
 """
-Phase 1 Pre-Training Script — AMD MI300X Optimized
+Phase 1 Pre-Training Script — NVIDIA T4 Optimized
 =====================================================
-FSDP distributed training with bf16 mixed precision on RCCL backend.
+FSDP/DDP distributed training with FP16 mixed precision on NCCL backend.
 Per ReasonBorn.md Section 5.1.
+Supports dual T4 GPUs on Kaggle with GradScaler for FP16 stability.
 """
 
 import os
@@ -17,14 +18,13 @@ import torch.nn.functional as F
 import torch.distributed as dist
 from torch.utils.data import DataLoader, DistributedSampler
 
-# ROCm: HIP maps to CUDA API transparently
-# RCCL is the communication backend (drop-in replacement for NCCL)
+# NCCL is the communication backend for NVIDIA GPUs
 
 
 def setup_distributed():
-    """Initialize distributed training (supports RCCL for AMD MI300X)."""
+    """Initialize distributed training (NCCL for NVIDIA T4)."""
     if 'RANK' in os.environ:
-        dist.init_process_group(backend="nccl")  # RCCL maps to nccl API
+        dist.init_process_group(backend="nccl")
         rank = dist.get_rank()
         world_size = dist.get_world_size()
         local_rank = int(os.environ.get('LOCAL_RANK', 0))
@@ -116,14 +116,15 @@ def main():
         try:
             from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
             from torch.distributed.fsdp import MixedPrecision
+            # FP16 mixed precision for T4 Tensor Cores
             mp_policy = MixedPrecision(
-                param_dtype=torch.bfloat16,
-                reduce_dtype=torch.bfloat16,
-                buffer_dtype=torch.bfloat16,
+                param_dtype=torch.float16,
+                reduce_dtype=torch.float16,
+                buffer_dtype=torch.float16,
             )
             model = FSDP(model, mixed_precision=mp_policy)
             if rank == 0:
-                print("[Phase 1] FSDP enabled with bf16 mixed precision")
+                print("[Phase 1] FSDP enabled with FP16 mixed precision")
         except Exception as e:
             if rank == 0:
                 print(f"[Phase 1] FSDP unavailable ({e}), using DDP")
@@ -144,7 +145,7 @@ def main():
         from torch.utils.data import TensorDataset
         seq_len = config.get('sequence_length', 2048)
         batch_size = config.get('batch_size', 32)
-        dummy_ids = torch.randint(0, model_config['vocab_size'], (1000, seq_len))
+        dummy_ids = torch.randint(0, model_config.vocab_size, (1000, seq_len))
         dataset = TensorDataset(dummy_ids, dummy_ids.clone())
         sampler = DistributedSampler(dataset) if world_size > 1 else None
         train_loader = DataLoader(dataset, batch_size=batch_size,
@@ -164,9 +165,10 @@ def main():
 
     scheduler = get_lr_scheduler(optimizer, config)
 
-    # Mixed precision scaler (bf16 on MI300X doesn't need GradScaler)
-    use_amp = config.get('mixed_precision', 'bf16') in ('bf16', 'fp16')
-    amp_dtype = torch.bfloat16 if 'bf16' in str(config.get('mixed_precision', '')) else torch.float16
+    # Mixed precision — FP16 on T4 requires GradScaler for stability
+    use_amp = config.get('mixed_precision', 'fp16') in ('bf16', 'fp16')
+    amp_dtype = torch.float16  # T4 Turing: FP16 Tensor Cores
+    scaler = torch.amp.GradScaler('cuda', enabled=(use_amp and device.type == 'cuda'))
 
     # Resume from checkpoint
     start_step = 0
@@ -212,12 +214,14 @@ def main():
                     loss = outputs.loss
                 loss = loss / grad_accum
 
-            loss.backward()
+            scaler.scale(loss).backward()
 
             if (batch_idx + 1) % grad_accum == 0:
                 if grad_clip > 0:
+                    scaler.unscale_(optimizer)
                     torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
-                optimizer.step()
+                scaler.step(optimizer)
+                scaler.update()
                 scheduler.step()
                 optimizer.zero_grad()
                 global_step += 1
