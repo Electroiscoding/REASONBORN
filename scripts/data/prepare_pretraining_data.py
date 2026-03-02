@@ -76,20 +76,20 @@ PHASE1_DATASETS = [
         "description": "C4 (Colossal Clean Crawled Corpus) — English web text"
     },
     {
-        "name": "wikipedia",
-        "subset": "20220301.en",
+        "name": "wikimedia/wikipedia",
+        "subset": "20231101.en",
         "text_column": "text",
         "compose_fn": None,
         "split": "train",
         "description": "Wikipedia — English encyclopedic knowledge"
     },
     {
-        "name": "togethercomputer/RedPajama-Data-1T",
-        "subset": "arxiv",
+        "name": "open-web-math/open-web-math",
+        "subset": "default",
         "text_column": "text",
         "compose_fn": None,
         "split": "train",
-        "description": "RedPajama arXiv — Academic papers and scientific reasoning"
+        "description": "OpenWebMath — arXiv and textbook mathematics reasoning"
     }
 ]
 
@@ -128,7 +128,7 @@ def process_single_dataset(
 
     # Stream to avoid OOM on large datasets (C4 is ~800GB uncompressed)
     try:
-        dataset = load_dataset(name, subset, split=split, streaming=True, trust_remote_code=True)
+        dataset = load_dataset(name, subset, split=split, streaming=True)
     except Exception as e:
         print(f"[DATA] ERROR downloading {name}: {e}")
         print(f"[DATA] Skipping {name}. You may need to authenticate with `huggingface-cli login`.")
