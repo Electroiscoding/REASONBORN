@@ -44,12 +44,11 @@ class PerceptionModule:
         self._build_special_token_cache()
 
     def _init_fresh(self) -> None:
-        """Initialize a fresh BPE tokenizer."""
-        self.tokenizer = Tokenizer(models.BPE(unk_token="[UNK]"))
-        self.tokenizer.pre_tokenizer = pre_tokenizers.ByteLevel(
-            add_prefix_space=False)
-        self.tokenizer.decoder = decoders.ByteLevel()
-        self._is_trained = False
+        """Initialize a standard BPE tokenizer based on GPT-2 to prevent un-trained exceptions."""
+        from tokenizers import Tokenizer
+        self.tokenizer = Tokenizer.from_pretrained("gpt2")
+        self.tokenizer.add_special_tokens(self.special_tokens)
+        self._is_trained = True
 
     def _build_special_token_cache(self) -> None:
         """Cache special token string → ID mappings."""

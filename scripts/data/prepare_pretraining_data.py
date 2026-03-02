@@ -143,8 +143,10 @@ def process_single_dataset(
 
             # --- Stage 3: Tokenization ---
             try:
-                token_ids = tokenizer.encode_input(text)
-            except Exception:
+                encoding = tokenizer.encode_input(text)
+                token_ids = encoding["input_ids"]
+            except Exception as e:
+                print(f"[DATA] Tokenization skipped doc {doc_id} due to error: {e}")
                 continue
 
             # --- Stage 4: Chunking to seq_len with provenance ---
