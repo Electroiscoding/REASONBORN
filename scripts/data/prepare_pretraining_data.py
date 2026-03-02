@@ -67,6 +67,30 @@ PHASE1_DATASETS = [
         "split": "train",
         "description": "GRAD — graduate-level math reasoning (Putnam, IMO, PhD, Research)"
     },
+    {
+        "name": "allenai/c4",
+        "subset": "en",
+        "text_column": "text",
+        "compose_fn": None,
+        "split": "train",
+        "description": "C4 (Colossal Clean Crawled Corpus) — English web text"
+    },
+    {
+        "name": "wikipedia",
+        "subset": "20220301.en",
+        "text_column": "text",
+        "compose_fn": None,
+        "split": "train",
+        "description": "Wikipedia — English encyclopedic knowledge"
+    },
+    {
+        "name": "togethercomputer/RedPajama-Data-1T",
+        "subset": "arxiv",
+        "text_column": "text",
+        "compose_fn": None,
+        "split": "train",
+        "description": "RedPajama arXiv — Academic papers and scientific reasoning"
+    }
 ]
 
 
