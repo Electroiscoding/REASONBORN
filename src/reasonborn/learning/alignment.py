@@ -31,12 +31,15 @@ class RewardModel(nn.Module):
     def __init__(self, config):
         super().__init__()
         self.config = config
-        d_model = config.d_model if hasattr(config, 'd_model') else config.get('d_model', 1024)
-        hidden_dropout = (
-            config.hidden_dropout_prob
-            if hasattr(config, 'hidden_dropout_prob')
-            else config.get('hidden_dropout_prob', 0.1)
-        )
+        
+        # Safely handle both dicts and namespaces for config access
+        if isinstance(config, dict):
+            d_model = config.get('d_model', 1024)
+            hidden_dropout = config.get('hidden_dropout_prob', 0.1)
+        else:
+            d_model = getattr(config, 'd_model', 1024)
+            hidden_dropout = getattr(config, 'hidden_dropout_prob', 0.1)
+            
         self.d_model = d_model
 
         # Projection layers: hidden_dim -> intermediate -> scalar reward
