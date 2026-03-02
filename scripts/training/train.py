@@ -109,6 +109,8 @@ def main():
         intermediate_size=config.get('intermediate_size', 10922),
         load_balance_loss_weight=config.get('load_balance_loss_weight', 0.01),
     )
+    if rank == 0:
+        print("[Phase 1] Booting up ReasonBornSystem parameters. This may take a few minutes for a 32B model...")
     model = ReasonBornSystem(model_config).to(dtype=torch.bfloat16, device=device)
 
     if rank == 0:
@@ -232,7 +234,7 @@ def main():
                 scheduler.step()
                 global_step += 1
 
-                if rank == 0 and global_step % 100 == 0:
+                if rank == 0 and (global_step % 5 == 0 or global_step == 1):
                     lr = scheduler.get_last_lr()[0]
                     vram_used = torch.cuda.memory_allocated(local_rank) / (1024 ** 3)
                     print(f"  Step {global_step} | Loss: {loss.item() * grad_accum:.4f} | LR: {lr:.2e} | VRAM: {vram_used:.1f} GB")
