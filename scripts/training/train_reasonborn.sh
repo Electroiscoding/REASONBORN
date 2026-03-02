@@ -28,14 +28,20 @@ export MASTER_PORT=${MASTER_PORT:-"29500"}
 export NCCL_SOCKET_IFNAME=${NCCL_SOCKET_IFNAME:-"^docker0,lo"} # Bypass useless adapters for RCCL
 
 # --- Parse args with defaults ---
+# --- WANDB SETUP ---
+# Only prompt if we have a TTY and WANDB_API_KEY is not set
 if [ -z "${WANDB_API_KEY:-}" ]; then
-    echo "========================================================"
-    echo "[!] Weights & Biases API Key is missing!"
-    read -p "[?] Please enter your WandB API Key (or press enter to skip logging): " WANDB_API_KEY
-    if [ -n "$WANDB_API_KEY" ]; then
-        export WANDB_API_KEY=$WANDB_API_KEY
+    if [ -t 0 ]; then
+        echo "========================================================"
+        echo "[!] Weights & Biases API Key is missing!"
+        read -p "[?] Please enter your WandB API Key (or press enter to skip logging): " WANDB_API_KEY_INPUT
+        if [ -n "$WANDB_API_KEY_INPUT" ]; then
+            export WANDB_API_KEY=$WANDB_API_KEY_INPUT
+        fi
+        echo "========================================================"
+    else
+        echo "[ROCm] WANDB_API_KEY not set and no TTY detected. Skipping interactive prompt."
     fi
-    echo "========================================================"
 fi
 
 CONFIG=${1:-"configs/training/pretraining.yaml"}
