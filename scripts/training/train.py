@@ -110,8 +110,13 @@ def main():
         load_balance_loss_weight=config.get('load_balance_loss_weight', 0.01),
     )
     if rank == 0:
-        print("[Phase 1] Booting up ReasonBornSystem parameters. This may take a few minutes for a 32B model...")
-    model = ReasonBornSystem(model_config).to(dtype=torch.bfloat16, device=device)
+        print("[Phase 1] Booting up ReasonBornSystem parameters natively in BF16. This may take a few minutes for a 32B model...")
+    
+    # Pre-configure torch defaults to avoid 136GB system RAM explosion during parameter initialization
+    torch.set_default_dtype(torch.bfloat16)
+    with torch.device(device):
+        model = ReasonBornSystem(model_config)
+    torch.set_default_dtype(torch.float32)
 
     if rank == 0:
         total_params = sum(p.numel() for p in model.parameters())

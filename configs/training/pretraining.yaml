@@ -10,9 +10,9 @@ gradient_clipping: 1.0
 
 # --- Batch Size (tuned for 192GB VRAM per MI300X) ---
 # MI300X can comfortably fit an enormous batch size in bf16
-batch_size: 4096
-gradient_accumulation_steps: 1 # We can rely on true batch size to avoid accumulator delays
-effective_batch_size: 32768    # 4096 * 8 GPUs!
+batch_size: 2
+gradient_accumulation_steps: 128
+effective_batch_size: 256 # 2 * 128
 
 optimizer:
   type: "adamw"
