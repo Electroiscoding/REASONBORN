@@ -54,34 +54,6 @@ def _compose_grad(item: dict) -> str:
 
 
 PHASE1_DATASETS = [
-    {
-        "name": "allenai/c4",
-        "subset": "en",
-        "text_column": "text",
-        "split": "train",
-        "description": "Colossal Clean Crawled Corpus — general web text"
-    },
-    {
-        "name": "wikipedia",
-        "subset": "20220301.en",
-        "text_column": "text",
-        "split": "train",
-        "description": "English Wikipedia — encyclopedic knowledge"
-    },
-    {
-        "name": "togethercomputer/RedPajama-Data-1T",
-        "subset": "arxiv",
-        "text_column": "text",
-        "split": "train",
-        "description": "arXiv papers — scientific & mathematical reasoning"
-    },
-    {
-        "name": "medalpaca/medical_meadow_pubmed",
-        "subset": None,
-        "text_column": "input",
-        "split": "train",
-        "description": "PubMed — biomedical domain knowledge"
-    },
     # =========================================================================
     # Xerv-AI/GRAD — Graduate-level mathematics with deep proofs
     # Multi-column dataset: question + difficulty + solution
