@@ -132,7 +132,7 @@ def process_single_dataset(
 
     # Stream to avoid OOM on large datasets (C4 is ~800GB uncompressed)
     try:
-        dataset = load_dataset(name, subset, split=split, streaming=True, trust_remote_code=True)
+        dataset = load_dataset(name, subset, split=split, streaming=True)
     except Exception as e:
         print(f"[DATA] ERROR downloading {name}: {e}")
         print(f"[DATA] Skipping {name}. You may need to authenticate with `huggingface-cli login`.")
