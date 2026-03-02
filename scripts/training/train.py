@@ -83,12 +83,13 @@ def main():
 
     # Optional: WandB logging
     wandb_run = None
-    # try:
-    #     import wandb
-    #     if rank == 0:
-    #         wandb_run = wandb.init(project=args.wandb_project, config=config)
-    # except ImportError:
-    #     pass
+    try:
+        import wandb
+        if rank == 0:
+            wandb.login(key=os.environ.get("WANDB_API_KEY"))
+            wandb_run = wandb.init(project=args.wandb_project, config=config)
+    except ImportError:
+        pass
 
     # Build model directly into bfloat16 to avoid FP32 memory spike
     from reasonborn.architecture.backbone import ReasonBornSystem

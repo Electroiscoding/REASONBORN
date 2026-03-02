@@ -28,6 +28,16 @@ export MASTER_PORT=${MASTER_PORT:-"29500"}
 export NCCL_SOCKET_IFNAME=${NCCL_SOCKET_IFNAME:-"^docker0,lo"} # Bypass useless adapters for RCCL
 
 # --- Parse args with defaults ---
+if [ -z "${WANDB_API_KEY:-}" ]; then
+    echo "========================================================"
+    echo "[!] Weights & Biases API Key is missing!"
+    read -p "[?] Please enter your WandB API Key (or press enter to skip logging): " WANDB_API_KEY
+    if [ -n "$WANDB_API_KEY" ]; then
+        export WANDB_API_KEY=$WANDB_API_KEY
+    fi
+    echo "========================================================"
+fi
+
 CONFIG=${1:-"configs/training/pretraining.yaml"}
 OUTPUT_DIR=${2:-"checkpoints/phase1"}
 DATA_DIR=${3:-"data/pretraining"}
