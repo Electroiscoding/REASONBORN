@@ -1,5 +1,5 @@
 import torch
-from reasonborn.learning.continual_learner import ContinualLearner
+from reasonborn.learning.continual_learner import AdaptiveLearningController as ContinualLearner
 
 class MockModel(torch.nn.Module):
     def __init__(self):

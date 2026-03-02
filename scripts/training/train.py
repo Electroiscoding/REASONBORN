@@ -92,22 +92,33 @@ def main():
 
     # Build model directly into bfloat16 to avoid FP32 memory spike
     from reasonborn.architecture.backbone import ReasonBornSystem
-    from types import SimpleNamespace
     
-    # 32B Base Configuration Params
-    model_config = SimpleNamespace(
-        d_model=config.get('d_model', 4096),
-        num_heads=config.get('num_heads', 32),
-        num_layers=config.get('num_layers', 32),
-        vocab_size=config.get('vocab_size', 50000),
-        sequence_length=config.get('sequence_length', 8192),
-        max_seq_len=config.get('sequence_length', 8192),
-        moe_expert_layers=set(config.get('moe_expert_layers', list(range(1, 32, 2)))),
-        num_experts=config.get('num_experts', 8),
-        top_k=config.get('top_k', 2),
-        intermediate_size=config.get('intermediate_size', 10922),
-        load_balance_loss_weight=config.get('load_balance_loss_weight', 0.01),
-    )
+    class ConfigWrapper:
+        def __init__(self, d):
+            self.d = d
+        def __getattr__(self, k):
+            if k in self.d:
+                return self.d[k]
+            raise AttributeError(f"Config has no attribute {k}")
+        def get(self, k, default=None):
+            return self.d.get(k, default)
+
+    # Base Configuration Params (Dynamic)
+    model_config_dict = {
+        'd_model': config.get('d_model', 4096),
+        'num_heads': config.get('num_heads', 32),
+        'num_layers': config.get('num_layers', 32),
+        'vocab_size': config.get('vocab_size', 50000),
+        'sequence_length': config.get('sequence_length', 8192),
+        'max_seq_len': config.get('sequence_length', 8192),
+        'moe_expert_layers': set(config.get('moe_expert_layers', list(range(1, 32, 2)))),
+        'num_experts': config.get('num_experts', 8),
+        'top_k': config.get('top_k', 2),
+        'intermediate_size': config.get('intermediate_size', 10922),
+        'load_balance_loss_weight': config.get('load_balance_loss_weight', 0.01),
+        'hidden_dropout_prob': config.get('hidden_dropout_prob', 0.1),
+    }
+    model_config = ConfigWrapper(model_config_dict)
     model = ReasonBornSystem(model_config).to(dtype=torch.bfloat16, device=device)
 
     if rank == 0:

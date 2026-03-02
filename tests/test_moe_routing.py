@@ -1,9 +1,9 @@
 import torch
-from reasonborn.architecture.moe import SparseMoE
+from reasonborn.architecture.moe import SparseMoELayer as SparseMoE
 
 def test_moe_top2_routing():
     class MockConfig:
-        hidden_size = 256
+        d_model = 256
         intermediate_size = 512
         num_experts = 8
         top_k = 2

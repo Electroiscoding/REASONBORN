@@ -131,6 +131,7 @@ class HybridAttentionLayer(nn.Module):
             mask = self._build_sliding_causal_mask(T, hidden_states.device)
             scores = scores + mask
             probs = F.softmax(scores, dim=-1)
+            probs = probs.to(v.dtype)
             out = torch.matmul(probs, v)
 
         out = out.transpose(1, 2).contiguous().view(B, T, C)
