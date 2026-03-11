@@ -11,11 +11,14 @@ Per ReasonBorn.md Section 4.7 / 5.3:
 """
 
 import copy
+import logging
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from typing import Dict, List, Optional, Any
 from torch.utils.data import DataLoader, TensorDataset
+
+logger = logging.getLogger(__name__)
 
 
 class AdaptiveLearningController:
@@ -151,7 +154,7 @@ class AdaptiveLearningController:
 
         self.fisher_diag = fisher
         self.model.zero_grad()
-        print(f"[EWC] Fisher diagonal estimated from {count} samples")
+        logger.info(f"[EWC] Fisher diagonal estimated from {count} samples")
 
     def set_validation_data(
         self,
@@ -160,7 +163,7 @@ class AdaptiveLearningController:
         """Set validation data for retention measurement."""
         self._validation_data = val_data
         self._baseline_accuracy = self.evaluate_retention()
-        print(f"[EWC] Baseline retention accuracy: {self._baseline_accuracy:.4f}")
+        logger.info(f"[EWC] Baseline retention accuracy: {self._baseline_accuracy:.4f}")
 
     def evaluate_retention(self) -> float:
         """
@@ -236,7 +239,7 @@ class AdaptiveLearningController:
                     n=len(new_data))
                 train_data.extend(pseudo_examples)
             except Exception as e:
-                print(f"[EWC] Replay generation failed: {e}, using new data only")
+                logger.warning(f"[EWC] Replay generation failed: {e}, using new data only")
 
         # 3. Training loop with EWC regularization
         self.model.train()
@@ -285,13 +288,13 @@ class AdaptiveLearningController:
                 num_batches += 1
 
             avg_loss = epoch_loss / max(num_batches, 1)
-            print(f"[EWC] Epoch {epoch + 1}/{self.max_update_epochs}, "
-                  f"Loss: {avg_loss:.4f}")
+            logger.info(f"[EWC] Epoch {epoch + 1}/{self.max_update_epochs}, "
+                   f"Loss: {avg_loss:.4f}")
 
         # 4. Evaluate retention
         retention_score = self.evaluate_retention()
-        print(f"[EWC] Post-update retention: {retention_score:.4f} "
-              f"(threshold: {self.gamma_threshold})")
+        logger.info(f"[EWC] Post-update retention: {retention_score:.4f} "
+                   f"(threshold: {self.gamma_threshold})")
 
         # 5. Commit or Rollback
         if retention_score >= self.gamma_threshold:
@@ -310,7 +313,7 @@ class AdaptiveLearningController:
                 except Exception:
                     pass
 
-            print("[EWC] ✓ Update COMMITTED. Anchor weights updated.")
+            logger.info("[EWC] ✓ Update COMMITTED. Anchor weights updated.")
             return "COMMITTED"
         else:
             # ROLLBACK: restore pre-update state
@@ -320,7 +323,7 @@ class AdaptiveLearningController:
                 'retention': retention_score,
                 'loss': avg_loss,
             })
-            print("[EWC] ✗ Update ROLLED BACK. Retention below threshold.")
+            logger.warning("[EWC] ✗ Update ROLLED BACK. Retention below threshold.")
             return "ROLLED_BACK"
 
     def get_update_summary(self) -> Dict[str, Any]:

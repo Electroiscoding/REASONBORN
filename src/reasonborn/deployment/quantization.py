@@ -6,9 +6,12 @@ Per ReasonBorn.md Section 5.5.
 """
 
 import os
+import logging
 import torch
 import torch.nn as nn
 from typing import Dict, Optional, Any, List
+
+logger = logging.getLogger(__name__)
 
 
 class QuantizationEngine:
@@ -55,7 +58,7 @@ class QuantizationEngine:
             {nn.Linear},
             dtype=torch.qint8,
         )
-        print(f"[Quantization] Dynamic INT8 applied ({self.backend})")
+        logger.info(f"[Quantization] Dynamic INT8 applied ({self.backend})")
         return quantized
 
     def static_quantize(
@@ -83,8 +86,8 @@ class QuantizationEngine:
                 prepared(input_ids=input_ids)
 
         quantized = torch.ao.quantization.convert(prepared)
-        print(f"[Quantization] Static INT8 applied after {min(i + 1, num_calibration_batches)} "
-              f"calibration batches ({self.backend})")
+        logger.info(f"[Quantization] Static INT8 applied after {min(i + 1, num_calibration_batches)} "
+                   f"calibration batches ({self.backend})")
         return quantized
 
     def prepare_qat(self, model: Optional[nn.Module] = None) -> nn.Module:
@@ -102,14 +105,14 @@ class QuantizationEngine:
             self.backend)
 
         prepared = torch.ao.quantization.prepare_qat(model)
-        print(f"[Quantization] QAT prepared ({self.backend})")
+        logger.info(f"[Quantization] QAT prepared ({self.backend})")
         return prepared
 
     def finalize_qat(self, qat_model: nn.Module) -> nn.Module:
         """Convert QAT model to fully quantized model."""
         qat_model.eval()
         quantized = torch.ao.quantization.convert(qat_model)
-        print("[Quantization] QAT finalized")
+        logger.info("[Quantization] QAT finalized")
         return quantized
 
     def export_onnx(
@@ -154,7 +157,7 @@ class QuantizationEngine:
             opset_version=opset_version,
             do_constant_folding=True,
         )
-        print(f"[Quantization] Exported ONNX to {output_path}")
+        logger.info(f"[Quantization] Exported ONNX to {output_path}")
         return output_path
 
     def compare_sizes(

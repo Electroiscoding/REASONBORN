@@ -18,11 +18,14 @@ import json
 import glob
 import math
 import random
+import logging
 from typing import List, Dict, Optional, Tuple
 from dataclasses import dataclass
 
 import torch
 from torch.utils.data import Dataset, DataLoader, DistributedSampler
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -146,7 +149,7 @@ class CurriculumManager:
                 f"Please run data preparation scripts first."
             )
 
-        print(f"[CurriculumManager] Loading {len(jsonl_files)} files from {self.data_dir}...")
+        logger.info(f"[CurriculumManager] Loading {len(jsonl_files)} files from {self.data_dir}...")
         for filepath in jsonl_files:
             with open(filepath, 'r', encoding='utf-8') as f:
                 for line in f:
@@ -170,7 +173,7 @@ class CurriculumManager:
                     )
                     self.all_samples.append(sample)
 
-        print(f"[CurriculumManager] Loaded {len(self.all_samples)} samples")
+        logger.info(f"[CurriculumManager] Loaded {len(self.all_samples)} samples")
 
     def _compute_difficulty(self, input_ids: List[int]) -> float:
         """
@@ -232,9 +235,9 @@ class CurriculumManager:
         # Update actual num_stages in case there were fewer samples
         self.num_stages = len(self.stages)
 
-        print(f"[CurriculumManager] Built {self.num_stages}-stage curriculum:")
+        logger.info(f"[CurriculumManager] Built {self.num_stages}-stage curriculum:")
         for stage in self.stages:
-            print(
+            logger.info(
                 f"  Stage {stage.stage_id}: {len(stage.data_indices)} samples, "
                 f"difficulty [{stage.difficulty_min:.3f}, {stage.difficulty_max:.3f}]"
             )
@@ -289,7 +292,7 @@ class CurriculumManager:
         if stage_id < len(self.stages):
             self.stages[stage_id].completed = True
             self.stages[stage_id].final_loss = final_loss
-            print(
+            logger.info(
                 f"[CurriculumManager] Stage {stage_id} completed. "
                 f"Final loss: {final_loss:.4f}"
             )

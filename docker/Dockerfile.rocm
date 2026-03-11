@@ -1,0 +1,97 @@
+# AMD ROCm Dockerfile for ReasonBorn - MI300X Optimized
+# ====================================================
+# This Dockerfile builds ReasonBorn for AMD MI300X GPUs using ROCm
+
+FROM rocm/pytorch:rocm6.0.2_ubuntu22.04_py3.10_pytorch2.2.0
+
+# Set environment variables for ROCm/AMD
+ENV HIP_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
+ENV PYTORCH_ROCM_ARCH="gfx942"  # MI300X architecture
+ENV ROCM_PATH=/opt/rocm
+ENV HSA_FORCE_FINE_GRAIN_SYNC=1
+export MIOPEN_USER_DB_PATH="/tmp/miopen_cache"
+
+# System dependencies
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    git \
+    wget \
+    curl \
+    vim \
+    htop \
+    python3-dev \
+    python3-pip \
+    libopenblas-dev \
+    liblapack-dev \
+    gfortran \
+    && rm -rf /var/lib/apt/lists/*
+
+# Upgrade pip and install Python dependencies
+COPY requirements.txt /tmp/requirements.txt
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -r /tmp/requirements.txt
+
+# Install ROCm-specific packages for MI300X
+RUN pip install --no-cache-dir \
+    torch-audio \
+    torchvision \
+    torchaudio \
+    flash-attn \
+    triton \
+    accelerate \
+    bitsandbytes \
+    datasets \
+    transformers \
+    tokenizers \
+    wandb \
+    tensorboard
+
+# Additional ML libraries with ROCm support
+RUN pip install --no-cache-dir \
+    sentencepiece \
+    protobuf \
+    scipy \
+    scikit-learn \
+    pandas \
+    numpy \
+    tqdm \
+    rich \
+    typer \
+    pydantic \
+    pyyaml
+
+# Create workspace directory
+WORKDIR /workspace
+
+# Copy ReasonBorn source code
+COPY src/ /workspace/src/
+COPY scripts/ /workspace/scripts/
+COPY configs/ /workspace/configs/
+COPY deploy/ /workspace/deploy/
+
+# Install ReasonBorn in development mode
+RUN cd /workspace && \
+    pip install -e .
+
+# Create cache directories
+RUN mkdir -p /tmp/miopen_cache /workspace/data /workspace/checkpoints /workspace/logs
+
+# Set permissions
+RUN chmod -R 755 /workspace
+
+# Expose port for API server
+EXPOSE 8000
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD curl -f http://localhost:8000/health || exit 1
+
+# Default command
+CMD ["python", "scripts/inference/inference_example.py", "--model_path", "/workspace/checkpoints/final_model.pt"]
+
+# Labels for metadata
+LABEL maintainer="ReasonBorn Team"
+LABEL version="1.0.0"
+LABEL description="ReasonBorn AI system optimized for AMD MI300X"
+LABEL hardware="AMD MI300X"
+LABEL framework="ROCm 6.0.2 + PyTorch 2.2.0"

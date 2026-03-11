@@ -60,7 +60,7 @@ def get_lr_scheduler(optimizer, config):
 
 def main():
     parser = argparse.ArgumentParser(description="ReasonBorn Phase 1 Pre-training")
-    parser.add_argument("--config", type=str, default="configs/training/pretraining.yaml")
+    parser.add_argument("--config", type=str, default="configs/training/pretraining_mi300x.yaml")
     parser.add_argument("--data_dir", type=str, default="data/pretraining")
     parser.add_argument("--output_dir", type=str, default="checkpoints/phase1")
     parser.add_argument("--resume", type=str, default=None, help="Checkpoint to resume from")
@@ -95,22 +95,34 @@ def main():
     from reasonborn.architecture.backbone import ReasonBornSystem
     from types import SimpleNamespace
     
-    # 32B Base Configuration Params
+    # Extract model configuration (3B Model - Scaled from ReasonBorn Paper)
+    model_cfg = config.get('model', {})
     model_config = SimpleNamespace(
-        d_model=config.get('d_model', 4096),
-        num_heads=config.get('num_heads', 32),
-        num_layers=config.get('num_layers', 32),
-        vocab_size=config.get('vocab_size', 50000),
-        sequence_length=config.get('sequence_length', 8192),
-        max_seq_len=config.get('sequence_length', 8192),
-        moe_expert_layers=set(config.get('moe_expert_layers', list(range(1, 32, 2)))),
-        num_experts=config.get('num_experts', 8),
-        top_k=config.get('top_k', 2),
-        intermediate_size=config.get('intermediate_size', 10922),
-        load_balance_loss_weight=config.get('load_balance_loss_weight', 0.01),
+        d_model=model_cfg.get('d_model', 1536),
+        num_heads=model_cfg.get('num_heads', 24),
+        num_layers=model_cfg.get('num_layers', 48),
+        vocab_size=model_cfg.get('vocab_size', 50000),
+        sequence_length=model_cfg.get('sequence_length', 2048),
+        max_seq_len=model_cfg.get('max_seq_len', model_cfg.get('sequence_length', 2048)),
+        moe_expert_layers=set(model_cfg.get('moe_expert_layers', [8, 16, 24, 32, 40])),
+        num_experts=model_cfg.get('num_experts', 8),
+        top_k=model_cfg.get('top_k', 2),
+        intermediate_size=model_cfg.get('intermediate_size', 6144),
+        load_balance_loss_weight=model_cfg.get('load_balance_loss_weight', 0.01),
+        # Paper-based architecture features
+        use_hybrid_attention=model_cfg.get('use_hybrid_attention', True),
+        local_window_size=model_cfg.get('local_window_size', 256),
+        global_tokens=model_cfg.get('global_tokens', 64),
+        use_rope_embeddings=model_cfg.get('use_rope_embeddings', True),
+        use_rms_norm=model_cfg.get('use_rms_norm', True),
+        tie_word_embeddings=model_cfg.get('tie_word_embeddings', False),
+        # 3B Model specific (scaled from paper)
+        attention_dropout=model_cfg.get('attention_dropout', 0.1),
+        output_dropout=model_cfg.get('output_dropout', 0.1),
+        mlp_dropout=model_cfg.get('mlp_dropout', 0.1),
     )
     if rank == 0:
-        print("[Phase 1] Booting up ReasonBornSystem parameters natively in BF16. This may take a few minutes for a 32B model...")
+        print("[Phase 1] Booting up ReasonBornSystem (3B) natively in BF16 for AMD MI300X...")
     
     # Pre-configure torch defaults to avoid 136GB system RAM explosion during parameter initialization
     torch.set_default_dtype(torch.bfloat16)
@@ -142,32 +154,41 @@ def main():
             model = torch.nn.parallel.DistributedDataParallel(
                 model, device_ids=[local_rank])
 
-    # Data loader
+    # Data loader - AMD MI300X Optimized
     from reasonborn.data.loader import PretrainingDataLoader
     try:
-        # Utilize maximum CPU host cores
-        num_cpu_workers = int(os.environ.get('REASONBORN_NUM_WORKERS', 16))
+        # Extract data configuration
+        data_cfg = config.get('data', {})
+        mi300x_cfg = config.get('mi300x_optimizations', {})
+        
+        # MI300X optimized worker count based on CPU cores and memory bandwidth
+        import multiprocessing
+        cpu_count = multiprocessing.cpu_count()
+        # MI300X systems typically have high core counts, optimize for memory bandwidth
+        num_workers = mi300x_cfg.get('num_workers', min(cpu_count // 2, 16))
+        
+        # Priority-based loading for optimal memory usage
+        priority_filter = data_cfg.get('priority_filter', None)
         
         data_loader = PretrainingDataLoader(
             data_dir=args.data_dir,
-            batch_size=config.get('batch_size', 4096),
-            seq_len=config.get('sequence_length', 8192),
+            batch_size=config.get('batch_size', 32),  # 3B model batch size
+            seq_len=model_config.sequence_length,  # Match model config
+            num_workers=num_workers,
+            distributed=world_size > 1,
+            priority_filter=priority_filter,
+            prefetch_factor=mi300x_cfg.get('prefetch_factor', 4),  # MI300X high memory bandwidth
+            persistent_workers=mi300x_cfg.get('persistent_workers', True),  # Keep workers alive
+            pin_memory=mi300x_cfg.get('pin_memory', True),
         )
-        
-        # Manually alter the actual dataloader worker count if accessible
-        if hasattr(data_loader, 'get_loader'):
-            train_loader = data_loader.get_loader()
-            if hasattr(train_loader, 'num_workers'):
-                train_loader.num_workers = num_cpu_workers
-        else:
-             train_loader = data_loader
+        train_loader = data_loader
             
     except Exception as e:
         if rank == 0:
             print(f"[Phase 1] FATAL: Failed to load pre-training data ({e}).")
         raise RuntimeError(
             f"Pre-training requires real tokenized datasets in {args.data_dir}. "
-            f"Please run `python scripts/data/prepare_pretraining_data.py` first."
+            f"Please run `python scripts/data/prepare_pretraining_data.py --output_dir {args.data_dir}` first."
         )
 
     # Optimizer
@@ -178,6 +199,7 @@ def main():
         betas=(opt_config.get('beta1', 0.9), opt_config.get('beta2', 0.95)),
         weight_decay=opt_config.get('weight_decay', 0.1),
         eps=opt_config.get('eps', 1e-8),
+        fused=True if hasattr(torch.optim.AdamW, 'fused') else False,  # MI300X fused kernels
     )
 
     scheduler = get_lr_scheduler(optimizer, config)
@@ -194,9 +216,26 @@ def main():
 
     # Training loop
     num_epochs = config.get('num_epochs', 1)
-    grad_accum = config.get('gradient_accumulation_steps', 1)
+    grad_accum = config.get('gradient_accumulation_steps', 32)
     grad_clip = config.get('gradient_clipping', 1.0)
     max_steps = config.get('lr_scheduler', {}).get('max_steps', 500000)
+    
+    # MI300X optimizations
+    mi300x_cfg = config.get('mi300x_optimizations', {})
+    use_torch_compile = mi300x_cfg.get('use_torch_compile', True)
+    
+    # Apply torch.compile for MI300X if available
+    if use_torch_compile and hasattr(torch, 'compile'):
+        if rank == 0:
+            print("[Phase 1] Applying torch.compile for MI300X optimization...")
+        try:
+            model = torch.compile(model, mode="max-autotune", fullgraph=True)
+            if rank == 0:
+                print("[Phase 1] torch.compile applied successfully")
+        except Exception as e:
+            if rank == 0:
+                print(f"[Phase 1] torch.compile failed: {e}")
+                print("[Phase 1] Continuing without compilation...")
 
     global_step = start_step
     model.train()

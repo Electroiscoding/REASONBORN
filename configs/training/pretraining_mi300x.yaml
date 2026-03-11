@@ -1,0 +1,114 @@
+# AMD MI300X Optimized Training Configuration
+# ============================================
+# This configuration is specifically tuned for AMD MI300X GPUs
+# with ROCm 6.0+ and PyTorch 2.4+
+
+# Model Architecture - 3B Parameters (Scaled from ReasonBorn Paper)
+# Paper base: L=18, d_model=768, h=12 (~500M)
+# 3B scaling: ~6x parameters, maintain paper's architectural ratios
+model:
+  d_model: 1536  # 2x from 768 (maintains attention head dimension)
+  num_heads: 24  # 2x from 12 (d_model/num_heads = 64, same as paper)
+  num_layers: 48  # ~2.7x from 18 (to reach ~3B parameters)
+  vocab_size: 50000
+  sequence_length: 2048  # Keep paper's context length
+  max_seq_len: 2048
+  
+  # Mixture of Experts Configuration (Paper Section 4.3.2)
+  moe_expert_layers: [8, 16, 24, 32, 40]  # Every 8th layer is MoE (paper ratio)
+  num_experts: 8  # Same as paper specification
+  top_k: 2  # Same as paper specification
+  load_balance_loss_weight: 0.01
+  
+  # Paper-based Architecture Features
+  use_hybrid_attention: true  # Paper's hybrid local-global attention
+  local_window_size: 256  # Paper's w_local parameter
+  global_tokens: 64  # Paper's |G| global tokens
+  use_rope_embeddings: true  # Paper uses rotary embeddings
+  use_rms_norm: true  # Paper normalization
+  tie_word_embeddings: false  # Separate for larger model
+  
+  # 3B Model Specific (scaled from paper)
+  intermediate_size: 6144  # 4x d_model (same ratio as paper)
+  attention_dropout: 0.1
+  output_dropout: 0.1
+  mlp_dropout: 0.1
+
+# Training Hyperparameters (3B Model)
+batch_size: 32  # Smaller batch size for 3B model memory
+gradient_accumulation_steps: 64  # Effective batch = 2048
+num_epochs: 1
+max_steps: 500000  # Total training steps
+
+# Optimizer Configuration
+optimizer:
+  learning_rate: 3e-4
+  beta1: 0.9
+  beta2: 0.95
+  weight_decay: 0.1
+  eps: 1e-8
+
+# Learning Rate Scheduler
+lr_scheduler:
+  warmup_steps: 4000
+  max_steps: 500000
+  min_lr: 3e-5
+  scheduler_type: "cosine"
+
+# MI300X Specific Settings
+mi300x_optimizations:
+  # Memory management
+  use_bf16: true
+  use_gradient_checkpointing: true
+  use_cpu_offload: false  # MI300X has sufficient VRAM
+  
+  # Communication optimizations
+  use_rccl_backend: true
+  overlap_communication: true
+  
+  # Compute optimizations
+  use_flash_attention_2: true
+  use_torch_compile: true
+  
+  # Data loading optimizations
+  pin_memory: true
+  persistent_workers: true
+  prefetch_factor: 4
+  num_workers: 16  # Adjust based on CPU cores
+
+# Distributed Training
+distributed:
+  strategy: "fsdp"  # Fully Sharded Data Parallel
+  mixed_precision:
+    param_dtype: "bfloat16"
+    reduce_dtype: "bfloat16"
+    buffer_dtype: "bfloat16"
+
+# Checkpointing
+checkpointing:
+  save_every: 5000
+  save_dir: "checkpoints/phase1"
+  save_optimizer_state: true
+  
+# Logging
+logging:
+  log_every: 10
+  log_dir: "logs/phase1"
+  wandb_project: "reasonborn-mi300x"
+
+# Data Configuration
+data:
+  data_dir: "data/processed"
+  priority_filter: null  # Load all priorities
+  shuffle: true
+  drop_last: true
+
+# Hardware Requirements (3B Model)
+hardware:
+  gpu_type: "AMD MI300X"
+  min_vram_per_gpu: "64GB"  # More VRAM needed for 3B
+  recommended_gpu_count: 8  # 1x to 8x MI300X supported
+  max_gpu_count: 128  # Like AMD Instella training
+  estimated_training_time: "21 days on 8x MI300X"
+  estimated_cost: "$195,000"
+  digital_ocean_support: true  # DigitalOcean MI300X GPUs

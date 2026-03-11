@@ -4,10 +4,13 @@ Pruning Engine — Magnitude + Structured + Attention Head Pruning
 Per ReasonBorn.md Section 5.5.
 """
 
+import logging
 import torch
 import torch.nn as nn
 import torch.nn.utils.prune as prune
 from typing import Dict, List, Optional, Any, Tuple
+
+logger = logging.getLogger(__name__)
 
 
 class MagnitudePruner:
@@ -172,8 +175,8 @@ class MagnitudePruner:
                 report['eval'] = eval_result
 
             results.append(report)
-            print(f"[Pruning] Step {step + 1}/{num_steps}: "
-                  f"sparsity={report['global_sparsity']:.2%}")
+            logger.info(f"[Pruning] Step {step + 1}/{num_steps}: "
+                   f"sparsity={report['global_sparsity']:.2%}")
 
         self.make_permanent()
         return results

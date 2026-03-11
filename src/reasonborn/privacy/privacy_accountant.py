@@ -8,9 +8,10 @@ when opacus is not installed.
 Per ReasonBorn.md Section 4.12.
 """
 
-import math
-from typing import Dict, List, Optional, Any
+import logging
+from typing import Dict, Any, List, Optional
 
+logger = logging.getLogger(__name__)
 
 class RenyiPrivacyAccountant:
     """
@@ -134,8 +135,8 @@ class RenyiPrivacyAccountant:
         """Returns True if privacy budget is exhausted."""
         current_epsilon = self.get_current_epsilon()
         if current_epsilon >= max_epsilon:
-            print(f"[PRIVACY] BUDGET EXCEEDED: ε={current_epsilon:.4f} "
-                  f"≥ {max_epsilon}")
+            logger.warning(f"[PRIVACY] BUDGET EXCEEDED: ε={current_epsilon:.4f} "
+                       f"≥ {max_epsilon}")
             return True
         return False
 
