@@ -12,6 +12,10 @@ import time
 import argparse
 import yaml
 import math
+import platform
+import subprocess
+import psutil
+import logging
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -19,6 +23,237 @@ import torch.distributed as dist
 from torch.utils.data import DataLoader, DistributedSampler
 
 # RCCL is the communication backend for AMD GPUs (drop-in replacement for NCCL)
+
+def detect_hardware_hyper_detailed():
+    """
+    Hyper-detailed hardware detection for ReasonBorn training.
+    Detects CPU, GPU, memory, OS, and specialized hardware capabilities.
+    """
+    print("=" * 80)
+    print("🔍 REASONBORN HYPER-DETAILED HARDWARE DETECTION")
+    print("=" * 80)
+    
+    # System Information
+    print("\n📋 SYSTEM INFORMATION:")
+    print(f"  Platform: {platform.platform()}")
+    print(f"  System: {platform.system()} {platform.release()}")
+    print(f"  Machine: {platform.machine()}")
+    print(f"  Processor: {platform.processor()}")
+    print(f"  Architecture: {platform.architecture()[0]}")
+    print(f"  Python Version: {sys.version}")
+    print(f"  PyTorch Version: {torch.__version__}")
+    
+    # CPU Information
+    print("\n🖥️  CPU INFORMATION:")
+    cpu_count = psutil.cpu_count(logical=True)
+    cpu_physical = psutil.cpu_count(logical=False)
+    cpu_freq = psutil.cpu_freq()
+    print(f"  Logical Cores: {cpu_count}")
+    print(f"  Physical Cores: {cpu_physical}")
+    if cpu_freq:
+        print(f"  Max Frequency: {cpu_freq.max:.2f} MHz")
+        print(f"  Min Frequency: {cpu_freq.min:.2f} MHz")
+        print(f"  Current Frequency: {cpu_freq.current:.2f} MHz")
+    
+    # Memory Information
+    memory = psutil.virtual_memory()
+    print(f"\n💾 MEMORY INFORMATION:")
+    print(f"  Total RAM: {memory.total / (1024**3):.2f} GB")
+    print(f"  Available RAM: {memory.available / (1024**3):.2f} GB")
+    print(f"  Used RAM: {memory.used / (1024**3):.2f} GB ({memory.percent:.1f}%)")
+    
+    # GPU Detection
+    print(f"\n🎮 GPU DETECTION:")
+    gpu_available = torch.cuda.is_available()
+    print(f"  CUDA Available: {gpu_available}")
+    
+    if gpu_available:
+        gpu_count = torch.cuda.device_count()
+        print(f"  GPU Count: {gpu_count}")
+        
+        for i in range(gpu_count):
+            print(f"\n  📍 GPU {i}:")
+            gpu_props = torch.cuda.get_device_properties(i)
+            print(f"    Name: {gpu_props.name}")
+            print(f"    Compute Capability: {gpu_props.major}.{gpu_props.minor}")
+            print(f"    Total Memory: {gpu_props.total_memory / (1024**3):.2f} GB")
+            print(f"    Multiprocessors: {gpu_props.multi_processor_count}")
+            
+            # Detect GPU type
+            gpu_name = gpu_props.name.lower()
+            if "amd" in gpu_name or "radeon" in gpu_name:
+                print("    🚀 GPU Type: AMD ROCm")
+                if "mi300x" in gpu_name or "mi300" in gpu_name:
+                    print("    ⭐ Special: AMD MI300X Detected!")
+                elif "mi250" in gpu_name:
+                    print("    ⭐ Special: AMD MI250 Detected!")
+            elif "nvidia" in gpu_name:
+                print("    🚀 GPU Type: NVIDIA CUDA")
+                if "a100" in gpu_name:
+                    print("    ⭐ Special: NVIDIA A100 Detected!")
+                elif "h100" in gpu_name:
+                    print("    ⭐ Special: NVIDIA H100 Detected!")
+                elif "rtx" in gpu_name:
+                    print("    ⭐ Special: NVIDIA RTX Detected!")
+            else:
+                print(f"    🚀 GPU Type: Unknown ({gpu_props.name})")
+            
+            # Memory usage
+            memory_allocated = torch.cuda.memory_allocated(i) / (1024**3)
+            memory_reserved = torch.cuda.memory_reserved(i) / (1024**3)
+            print(f"    Memory Allocated: {memory_allocated:.2f} GB")
+            print(f"    Memory Reserved: {memory_reserved:.2f} GB")
+            
+            # Check for BF16 support
+            try:
+                # Test BF16 tensor creation
+                test_tensor = torch.randn(10, 10, dtype=torch.bfloat16, device=f'cuda:{i}')
+                print("    🔢 BF16 Support: ✅ Available")
+            except:
+                print("    🔢 BF16 Support: ❌ Not Available")
+            
+            # Check for Flash Attention
+            try:
+                # Try to import flash attention
+                import flash_attn
+                print("    ⚡ Flash Attention: ✅ Available")
+            except ImportError:
+                print("    ⚡ Flash Attention: ❌ Not Available")
+            
+            # Check for torch.compile support
+            try:
+                # Test compilation
+                def test_fn(x):
+                    return x + 1
+                compiled = torch.compile(test_fn)
+                print("    🔧 torch.compile: ✅ Available")
+            except:
+                print("    🔧 torch.compile: ❌ Not Available")
+    else:
+        print("  ⚠️  No GPU detected - Training will run on CPU")
+        print("  🐌 This will be significantly slower!")
+    
+    # ROCm Specific Detection
+    print(f"\n🔥 ROCm DETECTION:")
+    try:
+        # Check if ROCm is available
+        if torch.version.hip:
+            print(f"  ROCm Version: {torch.version.hip}")
+            print("  🚀 ROCm Backend: ✅ Active")
+            
+            # Try to get ROCm device info
+            if gpu_available:
+                try:
+                    # Check for AMD GPU specific features
+                    print("  🔍 Checking AMD GPU capabilities...")
+                    
+                    # Test RCCL availability (AMD's NCCL equivalent)
+                    try:
+                        import rccl
+                        print("  🌐 RCCL: ✅ Available")
+                    except ImportError:
+                        print("  🌐 RCCL: ❌ Not Available (will use NCCL backend)")
+                    
+                    # Check for MIOpen (AMD's cuDNN equivalent)
+                    try:
+                        import miopen
+                        print("  🧠 MIOpen: ✅ Available")
+                    except ImportError:
+                        print("  🧠 MIOpen: ❌ Not Available")
+                        
+                except Exception as e:
+                    print(f"  ⚠️  Error checking AMD features: {e}")
+        else:
+            print("  ROCm Backend: ❌ Not Active")
+    except:
+        print("  ROCm Detection: ❌ Error")
+    
+    # Network/Distributed Capabilities
+    print(f"\n🌐 DISTRIBUTED CAPABILITIES:")
+    try:
+        # Check for NCCL/RCCL
+        if gpu_available:
+            try:
+                # Test NCCL backend
+                if torch.distributed.is_nccl_available():
+                    print("  🌐 NCCL Backend: ✅ Available")
+                else:
+                    print("  🌐 NCCL Backend: ❌ Not Available")
+            except:
+                print("  🌐 NCCL Backend: ❌ Error checking")
+        
+        # Check for MPI
+        try:
+            result = subprocess.run(['mpiexec', '--version'], 
+                                  capture_output=True, text=True, timeout=5)
+            if result.returncode == 0:
+                print("  🌐 MPI: ✅ Available")
+            else:
+                print("  🌐 MPI: ❌ Not Available")
+        except:
+            print("  🌐 MPI: ❌ Not Available")
+            
+    except Exception as e:
+        print(f"  ⚠️  Error checking distributed capabilities: {e}")
+    
+    # Storage Information
+    print(f"\n💿 STORAGE INFORMATION:")
+    try:
+        disk = psutil.disk_usage('/')
+        print(f"  Total Disk Space: {disk.total / (1024**3):.2f} GB")
+        print(f"  Free Disk Space: {disk.free / (1024**3):.2f} GB")
+        print(f"  Used Disk Space: {disk.used / (1024**3):.2f} GB")
+        
+        # Check for fast storage (SSD)
+        try:
+            # Simple SSD detection by checking if it's a typical SSD path
+            if platform.system() == "Linux":
+                result = subprocess.run(['lsblk', '-d', '-o', 'rota'], 
+                                      capture_output=True, text=True, timeout=5)
+                if '0' in result.stdout:
+                    print("  💾 Storage Type: SSD Detected")
+                else:
+                    print("  💾 Storage Type: HDD Detected")
+            else:
+                print("  💾 Storage Type: Unknown (Linux detection only)")
+        except:
+            print("  💾 Storage Type: Detection failed")
+    except Exception as e:
+        print(f"  ⚠️  Error checking storage: {e}")
+    
+    # Training Recommendations
+    print(f"\n🎯 TRAINING RECOMMENDATIONS:")
+    if gpu_available:
+        gpu_count = torch.cuda.device_count()
+        if gpu_count >= 8:
+            print("  🚀 Recommended: Full 8x GPU training")
+            print("  📊 Batch Size: 32 per GPU (Effective: 2048)")
+        elif gpu_count >= 4:
+            print("  🚀 Recommended: 4x GPU training")
+            print("  📊 Batch Size: 64 per GPU (Effective: 2048)")
+        elif gpu_count >= 2:
+            print("  🚀 Recommended: 2x GPU training")
+            print("  📊 Batch Size: 128 per GPU (Effective: 2048)")
+        else:
+            print("  🚀 Recommended: Single GPU training")
+            print("  📊 Batch Size: 2048 (if memory allows)")
+        
+        # Check if AMD MI300X
+        for i in range(gpu_count):
+            gpu_props = torch.cuda.get_device_properties(i)
+            gpu_name = gpu_props.name.lower()
+            if "mi300x" in gpu_name:
+                print("  ⭐ AMD MI300X Detected: Optimal for ReasonBorn 3B!")
+                print("  🔥 Use ROCm backend with BF16 precision")
+                break
+    else:
+        print("  ⚠️  WARNING: No GPU detected!")
+        print("  🐌 Training will be extremely slow on CPU")
+        print("  💡 Recommendation: Use cloud GPU service (DigitalOcean, AWS, etc.)")
+    
+    print("=" * 80)
+    print("🔍 HARDWARE DETECTION COMPLETE")
+    print("=" * 80)
 
 def setup_distributed():
     """Initialize distributed training (RCCL for AMD MI300X)."""
@@ -76,7 +311,10 @@ def main():
         config = yaml.safe_load(f)
 
     if rank == 0:
-        print(f"[Phase 1] Pre-training on {world_size} device(s)")
+        # Run hyper-detailed hardware detection first
+        detect_hardware_hyper_detailed()
+        
+        print(f"\n[Phase 1] Pre-training on {world_size} device(s)")
         print(f"[Phase 1] Device: {device} (ROCm / MI300X)")
         print(f"[Phase 1] Config: {args.config}")
         os.makedirs(args.output_dir, exist_ok=True)
@@ -85,11 +323,17 @@ def main():
     wandb_run = None
     try:
         import wandb
-        if rank == 0:
+        if rank == 0 and os.environ.get("WANDB_API_KEY"):
             wandb.login(key=os.environ.get("WANDB_API_KEY"))
             wandb_run = wandb.init(project=args.wandb_project, config=config)
+        elif rank == 0:
+            print("[Phase 1] WandB API key not found, skipping WandB logging")
     except ImportError:
-        pass
+        if rank == 0:
+            print("[Phase 1] WandB not available, skipping logging")
+    except Exception as e:
+        if rank == 0:
+            print(f"[Phase 1] WandB initialization failed: {e}, skipping logging")
 
     # Build model directly into bfloat16 to avoid FP32 memory spike
     from reasonborn.architecture.backbone import ReasonBornSystem

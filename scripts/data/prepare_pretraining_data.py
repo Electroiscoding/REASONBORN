@@ -40,6 +40,9 @@ import json
 import argparse
 import hashlib
 import logging
+import platform
+import psutil
+import torch
 from typing import Dict, List, Optional, Callable
 from datasets import load_dataset, Dataset
 from reasonborn.data.preprocessor import DataPreprocessor
@@ -52,6 +55,144 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
+
+def detect_data_processing_hardware():
+    """
+    Hardware detection optimized for data processing workflows.
+    Focuses on CPU, memory, storage, and I/O capabilities.
+    """
+    print("=" * 80)
+    print("🔍 REASONBORN DATA PROCESSING HARDWARE DETECTION")
+    print("=" * 80)
+    
+    # System Information
+    print("\n📋 SYSTEM INFORMATION:")
+    print(f"  Platform: {platform.platform()}")
+    print(f"  System: {platform.system()} {platform.release()}")
+    print(f"  Machine: {platform.machine()}")
+    print(f"  Python Version: {platform.python_version()}")
+    
+    # CPU Information (critical for data processing)
+    print("\n🖥️  CPU INFORMATION:")
+    cpu_count = psutil.cpu_count(logical=True)
+    cpu_physical = psutil.cpu_count(logical=False)
+    cpu_freq = psutil.cpu_freq()
+    print(f"  Logical Cores: {cpu_count}")
+    print(f"  Physical Cores: {cpu_physical}")
+    if cpu_freq:
+        print(f"  Max Frequency: {cpu_freq.max:.2f} MHz")
+        print(f"  Current Frequency: {cpu_freq.current:.2f} MHz")
+    
+    # CPU Utilization
+    cpu_percent = psutil.cpu_percent(interval=1)
+    print(f"  Current CPU Usage: {cpu_percent:.1f}%")
+    
+    # Memory Information
+    memory = psutil.virtual_memory()
+    print(f"\n💾 MEMORY INFORMATION:")
+    print(f"  Total RAM: {memory.total / (1024**3):.2f} GB")
+    print(f"  Available RAM: {memory.available / (1024**3):.2f} GB")
+    print(f"  Used RAM: {memory.used / (1024**3):.2f} GB ({memory.percent:.1f}%)")
+    
+    # Memory Recommendations
+    if memory.available >= 32:
+        print("  🚀 Memory Status: Excellent for large dataset processing")
+    elif memory.available >= 16:
+        print("  ✅ Memory Status: Good for medium dataset processing")
+    elif memory.available >= 8:
+        print("  ⚠️  Memory Status: Limited - process datasets in smaller chunks")
+    else:
+        print("  ❌ Memory Status: Insufficient - may encounter issues")
+    
+    # Storage Information
+    print(f"\n💿 STORAGE INFORMATION:")
+    try:
+        disk = psutil.disk_usage('/')
+        print(f"  Total Disk Space: {disk.total / (1024**3):.2f} GB")
+        print(f"  Free Disk Space: {disk.free / (1024**3):.2f} GB")
+        print(f"  Used Disk Space: {disk.used / (1024**3):.2f} GB")
+        
+        # Storage Recommendations
+        free_gb = disk.free / (1024**3)
+        if free_gb >= 500:
+            print("  🚀 Storage Status: Excellent for large datasets")
+        elif free_gb >= 200:
+            print("  ✅ Storage Status: Good for medium datasets")
+        elif free_gb >= 50:
+            print("  ⚠️  Storage Status: Limited - monitor space usage")
+        else:
+            print("  ❌ Storage Status: Insufficient - free up space")
+            
+    except Exception as e:
+        print(f"  ⚠️  Error checking storage: {e}")
+    
+    # Network Information (for dataset downloads)
+    print(f"\n🌐 NETWORK CAPABILITIES:")
+    try:
+        import socket
+        # Test internet connectivity
+        socket.create_connection(("huggingface.co", 80), timeout=5)
+        print("  🌐 HuggingFace: ✅ Accessible")
+    except:
+        print("  🌐 HuggingFace: ❌ Not accessible")
+    
+    try:
+        socket.create_connection(("github.com", 80), timeout=5)
+        print("  🌐 GitHub: ✅ Accessible")
+    except:
+        print("  🌐 GitHub: ❌ Not accessible")
+    
+    # GPU Information (for tokenization acceleration)
+    print(f"\n🎮 GPU ACCELERATION:")
+    gpu_available = torch.cuda.is_available()
+    print(f"  CUDA Available: {gpu_available}")
+    
+    if gpu_available:
+        gpu_count = torch.cuda.device_count()
+        print(f"  GPU Count: {gpu_count}")
+        
+        for i in range(gpu_count):
+            gpu_props = torch.cuda.get_device_properties(i)
+            gpu_memory = gpu_props.total_memory / (1024**3)
+            print(f"  GPU {i}: {gpu_props.name} ({gpu_memory:.1f} GB)")
+            
+        print("  🚀 GPU Status: Can accelerate tokenization")
+    else:
+        print("  ⚠️  GPU Status: CPU-only tokenization (slower)")
+    
+    # Data Processing Recommendations
+    print(f"\n🎯 DATA PROCESSING RECOMMENDATIONS:")
+    
+    # CPU-based recommendations
+    if cpu_count >= 16:
+        print("  🖥️  CPU: Use {cpu_count-4} workers for data loading")
+        print("  📊 Recommended batch size: 1000 documents per chunk")
+    elif cpu_count >= 8:
+        print("  🖥️  CPU: Use {cpu_count-2} workers for data loading")
+        print("  📊 Recommended batch size: 500 documents per chunk")
+    else:
+        print("  🖥️  CPU: Use {max(1, cpu_count-1)} workers for data loading")
+        print("  📊 Recommended batch size: 250 documents per chunk")
+    
+    # Memory-based recommendations
+    if memory.available >= 32:
+        print("  💾 Memory: Can process multiple large datasets simultaneously")
+    elif memory.available >= 16:
+        print("  💾 Memory: Can process medium datasets efficiently")
+    else:
+        print("  💾 Memory: Process datasets sequentially to avoid OOM")
+    
+    # Storage-based recommendations
+    if free_gb >= 100:
+        print("  💿 Storage: Can store all processed datasets locally")
+    elif free_gb >= 50:
+        print("  💿 Storage: Consider compressing processed datasets")
+    else:
+        print("  💿 Storage: Process and delete datasets to save space")
+    
+    print("=" * 80)
+    print("🔍 DATA PROCESSING HARDWARE DETECTION COMPLETE")
+    print("=" * 80)
 
 # ============================================================================
 # Phase 1 Dataset Registry - Real Datasets Only
@@ -572,6 +713,9 @@ def main():
     parser.add_argument("--priority_only", type=int, default=None,
                         help="Only process datasets with this priority level")
     args = parser.parse_args()
+
+    # Run hardware detection first
+    detect_data_processing_hardware()
 
     os.makedirs(args.output_dir, exist_ok=True)
 
