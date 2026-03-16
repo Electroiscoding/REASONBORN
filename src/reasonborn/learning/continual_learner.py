@@ -213,6 +213,29 @@ class AdaptiveLearningController:
 
         return correct / max(total, 1)
 
+    def _sample_importance_weighted_batch(self) -> List[Dict[str, torch.Tensor]]:
+        """Sample a batch from replay buffer with importance weighting."""
+        if not self.replay_buffer:
+            return []
+        
+        # Sample based on importance weights
+        batch_size = min(32, len(self.replay_buffer))
+        batch = random.choices(
+            self.replay_buffer, 
+            weights=[e.importance for e in self.replay_buffer], 
+            k=batch_size
+        )
+        
+        # Convert ReplayEntry to tensor format
+        tensor_batch = []
+        for entry in batch:
+            tensor_batch.append({
+                'input_ids': torch.tensor(entry.input_ids, dtype=torch.long),
+                'labels': torch.tensor(entry.labels, dtype=torch.long)
+            })
+        
+        return tensor_batch
+
     def train(self, num_epochs: int = 10, lr: float = 1e-4) -> Dict[str, Any]:
         """
         Implements bounded generative replay with importance weighting
@@ -235,11 +258,11 @@ class AdaptiveLearningController:
             batch = self._sample_importance_weighted_batch()
 
             for example in batch:
-                # Pseudo-example generation
+                # Generate pseudo-examples from replay buffer
                 input_ids = example['input_ids']
                 labels = example['labels']
 
-                # Forward pass
+                # Forward pass through model
                 outputs = self.model(input_ids=input_ids)
                 if isinstance(outputs, dict):
                     logits = outputs.get('logits', outputs.get('output'))
@@ -258,7 +281,7 @@ class AdaptiveLearningController:
                 else:
                     loss = F.cross_entropy(logits, labels)
 
-                # Backward pass
+                # Backward pass and optimization
                 optimizer.zero_grad()
                 loss.backward()
                 torch.nn.utils.clip_grad_norm_(self.model.parameters(), 1.0)
@@ -463,8 +486,8 @@ class AdaptiveLearningController:
             if replay_generator is not None:
                 try:
                     replay_generator.store_experiences(new_data)
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.warning(f"Failed to store experiences in replay generator: {e}")
 
             logger.info("[EWC] ✓ Update COMMITTED. Anchor weights updated.")
             return "COMMITTED"

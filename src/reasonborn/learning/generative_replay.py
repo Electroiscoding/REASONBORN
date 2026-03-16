@@ -87,7 +87,7 @@ class ReplayBuffer:
         total = sum(weights)
         probs = [w / total for w in weights]
 
-        indices = random.choices(range(len(self.buffer)), weights=probs, k=n)
+        indices = torch.multinomial(torch.tensor(probs), current_batch, replacement=True)
         selected = [self.buffer[i] for i in indices]
 
         # Update access counts

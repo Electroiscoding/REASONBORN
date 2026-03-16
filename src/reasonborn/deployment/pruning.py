@@ -144,8 +144,8 @@ class MagnitudePruner:
             if isinstance(module, nn.Linear):
                 try:
                     prune.remove(module, 'weight')
-                except ValueError:
-                    pass
+                except ValueError as e:
+                    logger.warning(f"Failed to remove pruning from module: {e}")
 
     def iterative_prune(
         self,

@@ -206,7 +206,6 @@ class InferenceServer:
             chunk = " ".join(words[i:i + 3])
             data = json.dumps({"text": chunk, "done": False})
             yield f"data: {data}\n\n"
-            await asyncio.sleep(0.02)
         yield f"data: {json.dumps({'text': '', 'done': True})}\n\n"
 
     def run(self, host: str = "0.0.0.0", port: int = 8000) -> None:

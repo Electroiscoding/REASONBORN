@@ -55,8 +55,8 @@ class ConsistencyVerifier:
         3. Quantitative consistency checking
         """
         if not prior_context:
-            return {'passed': True, 'confidence': 0.7,
-                    'feedback': 'No prior context to check against.'}
+            return {'passed': False, 'confidence': 0.0,
+                    'feedback': 'No prior context available for consistency verification.'}
 
         # 1. Negation contradiction check
         for fact in prior_context:
@@ -131,8 +131,9 @@ class ConsistencyVerifier:
                         fv = float(f_val.replace(',', ''))
                         if abs(cv - fv) > 0.01 * max(abs(cv), abs(fv), 1):
                             return (f"'{c_subj}' = {c_val} vs {f_val}")
-                    except ValueError:
-                        pass
+                    except ValueError as e:
+                        logger.warning(f"Numerical comparison failed: {e}")
+                        continue
         return None
 
     def _check_temporal_contradiction(self, claim: str, fact: str) -> Optional[str]:

@@ -5,7 +5,7 @@ class EmpiricalVerifier:
 
     def verify(self, claim: str) -> dict:
         if not self.memory:
-            return {"passed": True, "confidence": 0.5, "feedback": "No DB attached, assumed valid."}
+            return {"passed": False, "confidence": 0.0, "feedback": "No semantic memory available for empirical verification."}
             
         # Perform dense vector search
         results = self.memory.dense_search(claim, k=1)

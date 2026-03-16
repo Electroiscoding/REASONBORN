@@ -153,8 +153,9 @@ class ReasoningEngine:
                             node.children.append(child)
                         node.state.subgoals = sub_goals
                         return node
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning(f"Decomposition failed: {e}")
+                return None
 
         # Step 2: Fallback to retrieval-augmented templates
         template_subgoals = self._template_based_decompose(goal)
@@ -216,8 +217,9 @@ class ReasoningEngine:
                 results = self.retrieval_layer.hybrid_retrieve(goal, k=5)
                 retrieval_context = [r['text'] for r in results[:5]]
                 node.state.context = retrieval_context
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning(f"Decomposition failed: {e}")
+                return None
         
         # Initialize step-by-step solving
         steps = []
@@ -304,8 +306,9 @@ class ReasoningEngine:
                     'consistency_check': consistency_result
                 }
                 return self.synthesizer.synthesize(synthesis_input)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning(f"Decomposition failed: {e}")
+                return None
 
         # Step 5: Fallback synthesis with conflict resolution
         parts = []
@@ -502,16 +505,35 @@ class ReasoningEngine:
     def _micro_verify_step(self, step_text: str, current_state: str, 
                          retrieval_context: List[str]) -> Dict[str, Any]:
         """Micro-verification of individual reasoning steps."""
-        # Simple consistency check
-        if "contradict" in step_text.lower() or "impossible" in step_text.lower():
-            return {'passed': False, 'feedback': 'Step contains contradiction'}
+        # Logical consistency check
+        step_lower = step_text.lower()
         
-        # Check against retrieval context
-        for context_item in retrieval_context:
-            if self._semantic_similarity(step_text, context_item) > 0.8:
-                return {'passed': True, 'confidence': 0.8}
+        # Check for logical contradictions
+        contradiction_indicators = ['contradict', 'impossible', 'cannot', 'never']
+        if any(indicator in step_lower for indicator in contradiction_indicators):
+            return {'passed': False, 'confidence': 0.0, 
+                   'feedback': 'Step contains logical contradiction'}
         
-        return {'passed': True, 'confidence': 0.6}
+        # Check semantic consistency with retrieval context
+        if retrieval_context:
+            max_similarity = 0.0
+            for context_item in retrieval_context:
+                similarity = self._semantic_similarity(step_text, context_item)
+                max_similarity = max(max_similarity, similarity)
+            
+            if max_similarity > 0.8:
+                return {'passed': True, 'confidence': 0.9, 
+                       'feedback': 'Step consistent with retrieved evidence'}
+            elif max_similarity > 0.5:
+                return {'passed': True, 'confidence': 0.7, 
+                       'feedback': 'Step partially consistent with evidence'}
+            else:
+                return {'passed': False, 'confidence': 0.3, 
+                       'feedback': 'Step inconsistent with retrieved evidence'}
+        
+        # Default confidence when no context available
+        return {'passed': True, 'confidence': 0.6, 
+               'feedback': 'No retrieval context available for verification'}
 
     def _repair_step(self, step_text: str, feedback: str) -> str:
         """Repair a failed reasoning step."""

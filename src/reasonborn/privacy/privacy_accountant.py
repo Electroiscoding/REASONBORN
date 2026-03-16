@@ -69,8 +69,8 @@ class RenyiPrivacyAccountant:
             try:
                 return self._opacus_accountant.get_epsilon(
                     delta=self.target_delta)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning(f"Opacus accountant failed: {e}")
 
         # Fallback: analytical RDP computation
         return self._compute_epsilon_rdp()

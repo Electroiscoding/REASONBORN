@@ -215,15 +215,26 @@ class SymbolicVerifier:
     def _sympy_to_smt(self, expr) -> Optional[str]:
         """Convert SymPy expression to SMT-LIB format."""
         try:
-            # This is a simplified conversion - production would use proper SymPy->SMT translators
             if expr.is_Relational:
                 left, right = expr.lhs, expr.rhs
-                return f"(= {left} {right})"
+                if expr.is_Equality:
+                    return f"(= {left} {right})"
+                elif expr.is_LessThan:
+                    return f"(<= {left} {right})"
+                elif expr.is_Less:
+                    return f"(< {left} {right})"
+                elif expr.is_GreaterThan:
+                    return f"(>= {left} {right})"
+                elif expr.is_Greater:
+                    return f"(> {left} {right})"
+                else:
+                    return f"(not (= {left} {right}))"
             elif expr.is_Boolean:
                 return f"({expr})"
             else:
                 return None
-        except:
+        except Exception as e:
+            logger.warning(f"SymPy to SMT conversion failed: {e}")
             return None
 
     def _negate_constraint(self, constraint: Any) -> Any:
