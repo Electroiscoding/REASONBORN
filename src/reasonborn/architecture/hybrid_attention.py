@@ -1,30 +1,17 @@
-"""
-Module [2]: Hybrid Attention — Production Sliding-Window + Global Token Aggregation
-=====================================================================================
-Includes:
-- Rotary Positional Embeddings (RoPE) with cached cos/sin
-- Strictly enforced causal masking (autoregressive)
-- Local sliding-window attention mask
-- Flash Attention 2 backend via PyTorch SDPA (MI300X CDNA3 optimized)
-
-Per ReasonBorn.md Section 4.2.
-"""
-
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import math
 
-
 class RotaryPositionalEmbedding(nn.Module):
-    """Production RoPE with cached cos/sin for efficient inference."""
-
+    """
+    RoPE implementation for positional encoding.
+    """
     def __init__(self, dim: int, max_seq_len: int = 8192, base: int = 10000):
         super().__init__()
         self.dim = dim
         inv_freq = 1.0 / (base ** (torch.arange(0, dim, 2).float() / dim))
         self.register_buffer("inv_freq", inv_freq, persistent=False)
-        self.max_seq_len = max_seq_len
         self._build_cache(max_seq_len)
 
     def _build_cache(self, seq_len: int):
@@ -50,108 +37,164 @@ class RotaryPositionalEmbedding(nn.Module):
         return q_out, k_out
 
 
-class HybridAttentionLayer(nn.Module):
+class ReasonBornHybridAttention(nn.Module):
     """
-    Module [2]: Production Hybrid local sliding-window + global token aggregation.
-    Routes to Flash Attention 2 backend via PyTorch's scaled_dot_product_attention
-    when available (MI300X CDNA3 / ROCm 7.0). Falls back to manual SDPA with
-    explicit causal + sliding window mask on unsupported hardware.
+    Module [2]: Core SLM Transformer Backbone - Hybrid Attention Layer.
+    Combines local sliding-window attention with global token aggregation 
+    and context compression, fused via a learned gate.
     """
-
-    def __init__(self, config):
+    def __init__(self, d_model: int = 768, num_heads: int = 12, w_local: int = 256, num_global: int = 64, max_seq_len: int = 2048):
         super().__init__()
-        self.d_model = config.d_model
-        self.num_heads = config.num_heads
-        self.head_dim = self.d_model // self.num_heads
-        self.w_local = getattr(config, 'w_local', 256)
-
-        self.qkv_proj = nn.Linear(self.d_model, 3 * self.d_model, bias=False)
-        self.out_proj = nn.Linear(self.d_model, self.d_model, bias=False)
-
+        self.d_model = d_model
+        self.num_heads = num_heads
+        self.head_dim = d_model // num_heads
+        
+        # Architectural Hyperparameters
+        self.w_local = w_local       # Sliding window size
+        self.num_global = num_global # |G| global tokens
+        
+        # Projections
+        self.q_proj = nn.Linear(d_model, d_model, bias=False)
+        self.k_proj = nn.Linear(d_model, d_model, bias=False)
+        self.v_proj = nn.Linear(d_model, d_model, bias=False)
+        self.out_proj = nn.Linear(d_model, d_model, bias=False)
+        
         # RoPE
-        self.rotary_emb = RotaryPositionalEmbedding(
-            self.head_dim, getattr(config, 'max_seq_len',
-                                   getattr(config, 'sequence_length', 8192)))
+        self.rotary_emb = RotaryPositionalEmbedding(self.head_dim, max_seq_len)
+        
+        # Attention Sink Scorer (Learns to select top-k global tokens)
+        self.sink_scorer = nn.Linear(d_model, 1)
+        
+        # Pooling weights for Context Compression 
+        self.w_pool = nn.Linear(d_model, 1, bias=False)
+        
+        # Learned Gating Function: xi_i = sigmoid(W_gate * h_i + b_gate)
+        self.gate_proj = nn.Linear(d_model, 1)
 
-        # Determine attention backend from config
-        self.attn_impl = getattr(config, 'attn_implementation', 'sdpa')
-        self._use_flash = self.attn_impl in ('flash_attention_2', 'flash')
-
-        # Check if Flash Attention is actually available at import time
-        if self._use_flash:
-            self._flash_available = hasattr(
-                torch.nn.functional, 'scaled_dot_product_attention')
-            if not self._flash_available:
-                import warnings
-                warnings.warn(
-                    "flash_attention_2 requested but "
-                    "F.scaled_dot_product_attention not available. "
-                    "Falling back to manual attention.")
-        else:
-            self._flash_available = False
-
-    def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
+    def forward(self, hidden_states: torch.Tensor, attention_mask: torch.Tensor = None) -> torch.Tensor:
         B, T, C = hidden_states.shape
-        qkv = self.qkv_proj(hidden_states)
-        q, k, v = qkv.chunk(3, dim=-1)
-
-        q = q.view(B, T, self.num_heads, self.head_dim).transpose(1, 2)
-        k = k.view(B, T, self.num_heads, self.head_dim).transpose(1, 2)
-        v = v.view(B, T, self.num_heads, self.head_dim).transpose(1, 2)
-
-        # Apply RoPE
+        
+        # 1. Project to Q, K, V
+        q = self.q_proj(hidden_states).view(B, T, self.num_heads, self.head_dim).transpose(1, 2)
+        k = self.k_proj(hidden_states).view(B, T, self.num_heads, self.head_dim).transpose(1, 2)
+        v = self.v_proj(hidden_states).view(B, T, self.num_heads, self.head_dim).transpose(1, 2)
+        
+        # 2. Apply Rotary Positional Embeddings
         q, k = self.rotary_emb(q, k, T)
 
-        # ═══════════════════════════════════════════════════════════
-        # Flash Attention 2 path — fused kernel, O(T) memory
-        # Uses PyTorch's SDPA which routes to flash_attn on ROCm/CUDA
-        # when is_causal=True. Sliding window is applied post-hoc
-        # via the mask when the kernel doesn't support it natively.
-        # ═══════════════════════════════════════════════════════════
-        if self._flash_available:
-            # For sequences within the local window, pure causal flash
-            # is mathematically identical to sliding-window causal.
-            # For longer sequences, we build an explicit mask.
-            if T <= self.w_local:
-                # Pure causal — flash kernel handles this optimally
-                out = F.scaled_dot_product_attention(
-                    q, k, v, attn_mask=None, is_causal=True,
-                    dropout_p=0.0)
-            else:
-                # Build sliding-window causal mask for SDPA
-                mask = self._build_sliding_causal_mask(T, hidden_states.device)
-                out = F.scaled_dot_product_attention(
-                    q, k, v, attn_mask=mask, is_causal=False,
-                    dropout_p=0.0)
-        else:
-            # ═══════════════════════════════════════════════════════
-            # Manual attention fallback (no flash kernel)
-            # ═══════════════════════════════════════════════════════
-            scores = torch.matmul(q, k.transpose(-2, -1)) / math.sqrt(self.head_dim)
-            mask = self._build_sliding_causal_mask(T, hidden_states.device)
-            scores = scores + mask
-            probs = F.softmax(scores, dim=-1)
-            out = torch.matmul(probs, v)
+        # ---------------------------------------------------------
+        # COMPONENT A: Local Attention (Sliding Window)
+        # ---------------------------------------------------------
+        # Build banded causal mask: L_ij = 1 iff |i-j| <= w_local
+        mask_local = self._build_banded_causal_mask(T, self.w_local, hidden_states.device)
+        
+        # Compute local attention: A_local = softmax((QK^T * L) / sqrt(d_k)) V
+        scores_local = torch.matmul(q, k.transpose(-2, -1)) / math.sqrt(self.head_dim)
+        scores_local = scores_local + mask_local
+        attn_local_probs = F.softmax(scores_local, dim=-1)
+        attn_local = torch.matmul(attn_local_probs, v) # Shape: [B, H, T, D]
 
+        # ---------------------------------------------------------
+        # COMPONENT B: Global Token Aggregation & Compression
+        # ---------------------------------------------------------
+        # Calculate attention sink scores for global token selection
+        sink_scores = self.sink_scorer(hidden_states).squeeze(-1) # Shape: [B, T]
+        
+        # Select indices: Start token (0), End token (T-1), and top (num_global - 2)
+        k_tokens = min(self.num_global - 2, T - 2) if T > 2 else 0
+        global_indices = [torch.zeros(B, 1, dtype=torch.long, device=hidden_states.device)]
+        
+        if k_tokens > 0:
+            # Exclude start/end tokens from top-k search
+            inner_scores = sink_scores[:, 1:-1]
+            _, topk_idx = torch.topk(inner_scores, k_tokens, dim=-1)
+            topk_idx = topk_idx + 1 # Offset back by 1
+            global_indices.append(topk_idx)
+            
+        if T > 1:
+            global_indices.append(torch.full((B, 1), T - 1, dtype=torch.long, device=hidden_states.device))
+            
+        global_indices = torch.cat(global_indices, dim=-1) # Shape: [B, num_global]
+        
+        # Gather explicitly selected global K and V
+        # Expand indices for gathering across heads and dimensions
+        idx_expanded = global_indices.view(B, 1, -1, 1).expand(B, self.num_heads, -1, self.head_dim)
+        k_global_explicit = torch.gather(k, 2, idx_expanded)
+        v_global_explicit = torch.gather(v, 2, idx_expanded)
+        
+        # Context Compression: Compress local context into global tokens via pooling
+        # alpha_ij = softmax(w_pool^T h_j)
+        pool_weights = F.softmax(self.w_pool(hidden_states), dim=1) # Shape: [B, T, 1]
+        pool_weights = pool_weights.view(B, 1, T, 1) # Reshape for multi-head broadcast
+        
+        # Compress by pooling across the sequence dimension
+        k_compressed = torch.sum(k * pool_weights, dim=2, keepdim=True) # Shape: [B, H, 1, D]
+        v_compressed = torch.sum(v * pool_weights, dim=2, keepdim=True) # Shape: [B, H, 1, D]
+        
+        # Combine explicit global tokens with compressed context tokens
+        # G U {compressed contexts}
+        k_global = torch.cat([k_global_explicit, k_compressed], dim=2)
+        v_global = torch.cat([v_global_explicit, v_compressed], dim=2)
+
+        # ---------------------------------------------------------
+        # COMPONENT C: Global Attention
+        # ---------------------------------------------------------
+        # A_global(Q, K_G, V_G) = softmax(Q K_G^T / sqrt(d_k)) V_G
+        # Note: All tokens (Q) attend to the global key/value set (K_G, V_G)
+        scores_global = torch.matmul(q, k_global.transpose(-2, -1)) / math.sqrt(self.head_dim)
+        
+        # Apply causal masking to the global attention to prevent future leakage
+        mask_global = self._build_global_causal_mask(T, global_indices, hidden_states.device)
+        scores_global = scores_global + mask_global
+        
+        attn_global_probs = F.softmax(scores_global, dim=-1)
+        attn_global = torch.matmul(attn_global_probs, v_global) # Shape: [B, H, T, D]
+
+        # ---------------------------------------------------------
+        # COMPONENT D: Gated Combination
+        # ---------------------------------------------------------
+        # xi_i = sigmoid(W_gate h_i + b_gate)
+        gate = torch.sigmoid(self.gate_proj(hidden_states)) # Shape: [B, T, 1]
+        gate = gate.view(B, 1, T, 1) # Reshape to broadcast with attention outputs
+        
+        # O_i = (1 - xi_i) * A_local + xi_i * A_global
+        out = (1.0 - gate) * attn_local + gate * attn_global
+
+        # 3. Final Output Projection
         out = out.transpose(1, 2).contiguous().view(B, T, C)
         return self.out_proj(out)
 
-    def _build_sliding_causal_mask(
-        self, T: int, device: torch.device
-    ) -> torch.Tensor:
-        """
-        Builds a combined causal + sliding-window attention mask.
-        Returns a [1, 1, T, T] additive mask with -inf for blocked positions.
-        """
+    def _build_banded_causal_mask(self, T: int, w_local: int, device: torch.device) -> torch.Tensor:
+        """Creates the L_ij mask for local sliding-window attention."""
         mask = torch.full((T, T), float('-inf'), device=device)
-        i = torch.arange(T, device=device)
+        i = torch.arange(T, device=device).unsqueeze(1)
+        j = torch.arange(T, device=device).unsqueeze(0)
+        
+        # Causal (j <= i) AND within sliding window (i - j <= w_local)
+        valid = (j <= i) & ((i - j) <= w_local)
+        mask = mask.masked_fill(valid, 0.0)
+        return mask.view(1, 1, T, T)
 
-        # Causal: position i can attend to positions j where j <= i
-        mask = mask.masked_fill(i.unsqueeze(1) >= i.unsqueeze(0), 0.0)
-
-        # Sliding window: cut off positions more than w_local in the past
-        too_old = i.unsqueeze(0) < (i.unsqueeze(1) - self.w_local)
-        mask = mask.masked_fill(too_old, float('-inf'))
-
-        # Broadcast to [1, 1, T, T] for multi-head
-        return mask[None, None, :, :]
+    def _build_global_causal_mask(self, T: int, global_indices: torch.Tensor, device: torch.device) -> torch.Tensor:
+        """
+        Prevents query tokens from attending to global tokens that appear in the future.
+        The compressed context token is allowed (it acts as a trailing summary).
+        """
+        B, num_g = global_indices.shape
+        # Total keys in global set = explicitly selected + 1 compressed token
+        total_k = num_g + 1 
+        mask = torch.zeros((B, 1, T, total_k), device=device)
+        
+        for b in range(B):
+            # Extract the actual sequence positions of the global tokens
+            g_pos = global_indices[b] # Shape: [num_g]
+            
+            # i = current token position, j = global token index
+            i = torch.arange(T, device=device).unsqueeze(1) # [T, 1]
+            j_pos = g_pos.unsqueeze(0) # [1, num_g]
+            
+            # Future masking: -inf if the global token's position is > current query position
+            future_mask = (j_pos > i)
+            mask[b, 0, :, :num_g] = mask[b, 0, :, :num_g].masked_fill(future_mask, float('-inf'))
+            
+        return mask
