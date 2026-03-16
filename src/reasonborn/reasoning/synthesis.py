@@ -34,7 +34,7 @@ class TreeSynthesizer:
             try:
                 return self._model_synthesize(goal, child_solutions)
             except Exception:
-                pass
+                return self._heuristic_synthesize(goal, child_solutions)
 
         # Fallback: structured combination
         return self._heuristic_synthesize(goal, child_solutions)

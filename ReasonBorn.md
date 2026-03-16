@@ -1284,8 +1284,8 @@ def extract_proof_object(reasoning_tree):
 
 ```json
 {
-  "@context": "https://reasonborn.ai/proof/v1",
-  "@type": "ReasoningProof",
+  "@context": ["https://www.w3.org/2018/credentials/v1", "https://schema.org/"],
+  "@type": ["VerifiableCredential", "ProofObject"],
   "claim": "The melting point of sodium chloride is 801°C at standard pressure",
   "premises": [
     {
@@ -2485,8 +2485,8 @@ class ProofObject:
     def to_json_ld(self):
         """Exports to JSON-LD format for interoperability."""
         return {
-            "@context": "https://reasonborn.ai/proof/v1",
-            "@type": "ReasoningProof",
+            "@context": ["https://www.w3.org/2018/credentials/v1", "https://schema.org/"],
+            "@type": ["VerifiableCredential", "ProofObject"],
             "claim": self.claim,
             "domain": self.domain,
             "premises": [p.to_dict() for p in self.premises],
@@ -3894,7 +3894,7 @@ class ForensicAnalyzer:
 
 ```json
 {
-  "$schema": "https://reasonborn.ai/system-prompt-schema/v1.0",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object",
   "properties": {
     "metadata": {
@@ -4213,7 +4213,7 @@ class ForensicAnalyzer:
 
 ```json
 {
-  "$schema": "https://reasonborn.ai/user-prompt-schema/v1.0",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object",
   "properties": {
     "domain": {

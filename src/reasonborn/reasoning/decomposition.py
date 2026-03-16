@@ -33,7 +33,7 @@ class TreeDecomposer:
                     sub_goals = self._validate_subgoals(goal, sub_goals)
                     return sub_goals[:self.max_subgoals]
             except Exception:
-                pass
+                return decomposed_goals
 
         # Heuristic decomposition
         return self._heuristic_decompose(goal)

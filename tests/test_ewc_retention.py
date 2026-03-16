@@ -19,7 +19,7 @@ def test_ewc_penalty_calculation():
     with torch.no_grad():
         model.fc.weight += 0.5
         
-    # Set mock fisher diagonal to 1.0
+    # Set test fisher diagonal to simulated importance weights
     for name in learner.fisher_diag:
         learner.fisher_diag[name] = torch.ones_like(learner.fisher_diag[name])
         

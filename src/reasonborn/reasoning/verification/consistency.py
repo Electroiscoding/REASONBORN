@@ -167,5 +167,12 @@ class ConsistencyVerifier:
         return len(words1 & words2) / len(words1 | words2)
 
     def is_applicable(self, goal: str) -> bool:
-        """Consistency verifier is always applicable."""
-        return True
+        """Consistency verifier applies to claims with multiple statements."""
+        # Check for consistency indicators: contradictions, comparisons, temporal relations
+        consistency_indicators = [
+            'contradict', 'conflict', 'inconsistent', 'disagree',
+            'compare', 'versus', 'while', 'however', 'but',
+            'before', 'after', 'during', 'when', 'then'
+        ]
+        goal_lower = goal.lower()
+        return any(indicator in goal_lower for indicator in consistency_indicators)

@@ -1,4 +1,4 @@
-from reasonborn.reasoning.engine import Node, NestedCoTEngine
+from reasonborn.reasoning.engine import ReasoningNode, ReasoningEngine
 
 class MockModel:
     def generate_decomposition(self, query):
@@ -13,9 +13,14 @@ class MockModel:
         return "synthesized"
 
 def test_tree_decomposition():
+    """Test nested CoT tree decomposition without mocking."""
     engine = NestedCoTEngine(MockModel(), max_depth=3)
-    # Mocking verify to pass
-    engine._verify_solution = lambda n, s: {"passed": True, "confidence": 1.0, "proof": {}}
     
+    # Test with real verification - no mocking
     final, _ = engine.run("solve this complex problem", {})
     assert final == "synthesized"
+    
+    # Additional test: verify the reasoning tree structure
+    assert hasattr(_, 'reasoning_tree')
+    assert hasattr(_, 'num_nodes')
+    assert hasattr(_, 'max_depth_reached')

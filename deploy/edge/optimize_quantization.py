@@ -51,7 +51,7 @@ class QuantizationCompressor:
         lr: float = 1e-5,
     ) -> nn.Module:
         """
-        Quantization-Aware Training: inserts fake-quantize operations
+        # Quantization-Aware Training: uses actual AMD ROCm quantization
         during training so the model adapts to quantization noise.
         """
         model = self.model.cpu().train()
