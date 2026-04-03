@@ -138,18 +138,23 @@ def PretrainingDataLoader(
         sampler = DistributedSampler(dataset)
         shuffle = False  # Sampler handles shuffling
 
-    # MI300X optimized DataLoader settings
-    return DataLoader(
-        dataset,
+    # CPU-optimized DataLoader settings (pin_memory only for GPU)
+    import torch
+    loader_kwargs = dict(
+        dataset=dataset,
         batch_size=batch_size,
         shuffle=shuffle,
         sampler=sampler,
         num_workers=num_workers,
-        pin_memory=True,  # Critical for MI300X performance
-        drop_last=True,    # Avoid uneven batch sizes in DDP
-        prefetch_factor=prefetch_factor,
-        persistent_workers=persistent_workers if num_workers > 0 else False,
-        # MI300X specific optimizations
-        collate_fn=None,   # Default collation is fine for pre-tokenized data
-        generator=None,    # Use default RNG for reproducibility
+        pin_memory=torch.cuda.is_available(),  # Only for GPU
+        drop_last=True,
+        collate_fn=None,
+        generator=None,
     )
+    
+    # Only add prefetch-related args when using multiprocessing
+    if num_workers > 0:
+        loader_kwargs['prefetch_factor'] = prefetch_factor
+        loader_kwargs['persistent_workers'] = persistent_workers
+    
+    return DataLoader(**loader_kwargs)
